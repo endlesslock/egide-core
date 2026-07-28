@@ -4,7 +4,8 @@ This repository publishes the decision core of **Egide**, an anti-theft applicat
 devices, so that anyone can read the rules that govern when it erases data, and run the tests that
 lock those rules down.
 
-Egide is sold by EndlessLock. Contact: support@endlesslock.com
+Egide is made and sold by EndlessLock: **https://endlesslock.com**
+Contact: support@endlesslock.com
 
 ## What Egide does
 

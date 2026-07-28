@@ -44,9 +44,10 @@ that corresponds to the release, so you can read the decision logic that was cur
 
 ## Two sources, on purpose
 
-The same hashes are published on the EndlessLock site and in this repository, which is hosted
-elsewhere. Compare both. They are under different control, so an attacker who can rewrite one still
-has to rewrite the other, and a silent change becomes a visible contradiction.
+The same hashes are published on the EndlessLock site, at https://endlesslock.com, and in this
+repository, which is hosted elsewhere. Compare both. They are under different control, so an
+attacker who can rewrite one still has to rewrite the other, and a silent change becomes a visible
+contradiction.
 
 If the two ever disagree, trust neither, and tell us.
 
@@ -58,6 +59,6 @@ Release tags in this repository are signed with the maintainer's OpenPGP key. To
 git verify-tag <tag>
 ```
 
-The key fingerprint is published on the EndlessLock site. Fetch it from there, not from a keyserver
-and not from this file: a fingerprint quoted inside the very repository it is meant to authenticate
-proves nothing on its own.
+The key fingerprint is published at https://endlesslock.com. Fetch it from there, not from a
+keyserver and not from this file: a fingerprint quoted inside the very repository it is meant to
+authenticate proves nothing on its own.
