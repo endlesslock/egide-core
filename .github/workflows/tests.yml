@@ -1,0 +1,39 @@
+name: tests
+
+# The README asks you to run the tests yourself. This runs them on every change,
+# on a machine nobody here controls, so you can read the result without cloning.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run the test suite
+        run: ./gradlew test --no-daemon
+
+      - name: Keep the test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/reports/tests/test
+          if-no-files-found: error
