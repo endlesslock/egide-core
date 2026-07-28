@@ -14,7 +14,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   control-port parsing, and the complete server contract.
 - Four Android-dependent files published for reading in `android-extracts/`: the device identity
   key, the device identifier resolver, the HTTP factory, and the network availability check.
-- 197 host tests covering the boundaries of every published decision.
+- `ClosedSurface.kt`: a declaration-only map of the closed part, so the published flow is
+  complete end to end. Every operation the application can perform is listed with what it touches
+  and what it sends; none of them is implemented, and a test asserts that none of them is.
+- 198 host tests covering the boundaries of every published decision.
 - `ARCHITECTURE.md`, explaining where the published boundary falls and what trust remains.
 - `SECURITY.md`, with a disclosure policy that explicitly does not require our permission to publish.
 - `VERIFY.md`, for checking a received package against its published hash.

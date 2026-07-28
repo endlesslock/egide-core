@@ -8,7 +8,7 @@ Egide is sold by EndlessLock. Contact: support@endlesslock.com
 
 ## What Egide does
 
-Egide protects the data on a phone that gets stolen, seized by a thief, or simply lost. It watches
+Egide protects the data on a phone that gets stolen, taken, or simply lost. It watches
 for signs that the device has left its owner's hands, and past a threshold the owner configured, it
 erases the protected data. It runs as a device owner on GrapheneOS, which is what gives it the
 authority to do that.
@@ -46,6 +46,13 @@ performed, how the device-owner privileges are established, and how the applicat
 tampered with. Publishing those would hand an attacker a map, and would not tell an honest user
 anything they need.
 
+The gap that leaves is filled by `ClosedSurface.kt`, which declares **every** operation the
+application can perform on a device, with what each one touches and what each one sends, and
+implements none of them. You get the full list of what this software can do to a phone; you do not
+get the recipe for each step. In particular, that file is where you can check the claim that matters
+most: there are exactly **two** outbound network operations in the whole application, and neither
+carries anything about you or the contents of your device.
+
 That is a real limitation and it cuts both ways. A reader of this repository can verify the rules,
 and cannot verify that the binary they were given contains exactly these rules. See the honest
 limitations section below.
@@ -67,6 +74,7 @@ files decide, they never act.
 | `SettingsValidation.kt` | The bounds on every setting that can lead to an erase. |
 | `TorParsing.kt` | Parsing of the Tor control port responses. |
 | `ApiContract.kt` | The complete contract with the server: every endpoint, every header, every JSON field. |
+| `ClosedSurface.kt` | The map of the closed part: every operation the application can perform on a device, what each one touches, and what each one sends. Declarations only, no implementations. |
 
 `android-extracts/` holds four files that depend on the Android framework and therefore cannot be
 compiled here. They are published for reading, not for running:
@@ -84,7 +92,7 @@ compiled here. They are published for reading, not for running:
 ./gradlew test
 ```
 
-197 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
+198 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
 which a timer fires, the version code that is refused, the response that does not erase.
 
 ## What the enrolment request contains
