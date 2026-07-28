@@ -1,0 +1,87 @@
+EndlessLock Source-Available Licence, version 1.0
+
+Copyright (c) 2026 EndlessLock. All rights reserved.
+
+This is NOT an open source licence. It grants the right to read and to verify.
+It does not grant the right to redistribute or to build a product.
+
+1. DEFINITIONS
+
+   "The Software" means the source code published in this repository, in whole
+   or in part, including any derivative of it.
+
+   "You" means any individual or legal entity exercising the permissions
+   granted below.
+
+2. PERMISSIONS GRANTED
+
+   You may, free of charge and without asking permission:
+
+   a) read, study and analyse the Software, for any purpose, including
+      security research and academic work;
+
+   b) compile, run and modify the Software on your own machines;
+
+   c) quote excerpts of the Software in a security report, an article, a piece
+      of research or a court document, provided the source is identified;
+
+   d) publish the result of any analysis or audit of the Software, including a
+      critical one, without prior notice to us and without our approval;
+
+   e) deposit a verbatim copy of the Software in a public software archive
+      (Software Heritage, the Internet Archive, or an equivalent), so that any
+      analysis citing it stays verifiable if this repository moves or
+      disappears;
+
+   f) distribute a modified copy of the Software as a proof of concept, when it
+      accompanies a published security report and serves to make that report
+      reproducible. The copy must state that it is modified and must not be
+      presented as a release.
+
+3. RESTRICTIONS
+
+   You may not, without prior written permission from EndlessLock:
+
+   a) redistribute the Software, modified or not, in source or in binary form,
+      except as permitted by 2(e) and 2(f). Forking through the normal
+      mechanism of the hosting platform is expressly permitted and is not a
+      breach of this clause; what it does not grant is the right to publish a
+      product, a service or a release built from that fork;
+
+   b) use the Software, or any part of it, in a product or a service, whether
+      commercial or free;
+
+   c) create and distribute a derivative work of the Software;
+
+   d) remove or alter this licence, the copyright notices, or the security
+      notices contained in the Software.
+
+4. NO TRADEMARK RIGHTS
+
+   This licence grants no right over the names "Egide" or "EndlessLock", nor
+   over any associated logo or visual identity.
+
+5. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+6. TERMINATION
+
+   The permissions in section 2 terminate automatically if you breach section
+   3. The right to publish an analysis already made, under 2(d), survives that
+   termination: we will not use this licence to silence a security report.
+
+7. INTERPRETATION
+
+   Where a clause of this licence is ambiguous, it is to be read in favour of
+   the reader and of the security researcher. This licence exists to make the
+   Software verifiable; a reading that would frustrate verification is the
+   wrong reading.
+
+Questions about this licence: support@endlesslock.com
