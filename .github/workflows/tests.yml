@@ -21,7 +21,7 @@ jobs:
       - name: Set up the JDK
         uses: actions/setup-java@v4
         with:
-          distribution: jetbrains
+          distribution: temurin
           java-version: '21'
 
       - name: Set up Gradle
