@@ -193,4 +193,4 @@ We publish this to be verifiable, not to be resold.
 ## Reporting a security issue
 
 Write to support@endlesslock.com, and see `SECURITY.md` for what to expect. If you would rather not
-be readable in transit, ask for a key first and you will get one back.
+be readable in transit, our OpenPGP public key is in `SECURITY.md`; you do not have to ask for it.
