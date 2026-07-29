@@ -24,19 +24,22 @@ package com.endlesslock.egide.core
 object TriggerLogic {
 
     /**
-     * Default lock time limit, in seconds, when no value has been persisted.
+     * Fallback lock time limit, in seconds, used **only when the persisted value cannot be read**:
+     * absent, empty, or non-numeric.
      *
-     * Set to **0, meaning the trigger is DISABLED**, to match the airplane and network timers
-     * where an absent value or 0 also means disabled. A threshold of 0 is read by
-     * [lockDurationShouldWipe] as "disarmed", so this fallback is safe: a configuration that is
-     * missing or unreadable NEVER erases anything.
+     * This is NOT the value a device ships with. Setup writes a real threshold, 72 hours, before
+     * the device reaches its owner, and the README documents that default. This constant covers
+     * the different case where the stored setting is missing or corrupt, and the question is what
+     * to do in the absence of an instruction.
      *
-     * Deliberate trade-off, **fail-open**: an unconfigured threshold (absent, empty, or
-     * non-numeric) leaves the lock trigger inactive rather than falling back to an arbitrary
-     * duration. We favour consistency across triggers and predictability ("nothing is armed until
-     * something is entered") at the cost of having no time-based protection by default. The other
-     * defence legs (failed passcode attempts, integrity checks, the remote signal, and the
-     * airplane and network timers once configured) remain in force.
+     * The answer is **0, meaning disarmed**, matching the airplane and network timers where an
+     * absent value or 0 also means disabled. A threshold of 0 is read by [lockDurationShouldWipe]
+     * as "disarmed", so an unreadable configuration NEVER erases anything.
+     *
+     * Deliberate trade-off, **fail-open on this specific fallback**: we would rather lose the lock
+     * timer on a device whose settings became unreadable than erase one on a threshold nobody
+     * chose. The other defence legs (failed passcode attempts, integrity checks, the remote
+     * signal, and the airplane and network timers) are unaffected and stay armed.
      */
     const val DEFAULT_LOCK_LIMIT_SECONDS = 0
 
