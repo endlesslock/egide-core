@@ -87,6 +87,18 @@ object ApiContract {
     /** Update: download the package. GET, authenticated by the session token. */
     const val PATH_DOWNLOAD = "/download"
 
+    /**
+     * Update: add entitlements to an ALREADY ENROLLED device. POST, Bearer JWT required.
+     *
+     * This is NOT a re-enrolment. The device identity — `device_id`, public key, Keystore key —
+     * is never touched: the refusal to rotate an identity key stands. The device hands over a
+     * fresh single-use token and the server ADDS whatever that token grants.
+     *
+     * A token only ever ADDS. It never removes nor replaces an entitlement: otherwise anyone
+     * handing a key to a device holder could downgrade them. Removal is an operator action.
+     */
+    const val PATH_REDEEM = "/api/redeem"
+
     // =================== QUERY PARAMETERS ===================
 
     /** Query parameter: the currently installed version, for the server to compare against. */
@@ -129,6 +141,18 @@ object ApiContract {
 
     /** Boolean: is an update needed? Update. */
     const val KEY_UPDATE_NEEDED = "update_needed"
+
+    /** Response key: the device's COMPLETE set of entitlements after the call, not a delta. */
+    const val KEY_ENTITLEMENTS = "entitlements"
+
+    /**
+     * Response key: the release channel the server resolved for this device.
+     *
+     * Present on both `/version` and `/api/redeem`. It is the only way a device learns that an
+     * entitlement was REVOKED server-side — without it, a downgraded device would keep showing
+     * itself as a tester while receiving stable builds.
+     */
+    const val KEY_CHANNEL = "channel"
 
     // =================== TRANSFER OBJECTS ===================
 

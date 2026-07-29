@@ -413,4 +413,30 @@ class ApiContractTest {
         assertTrue(obj.has(ApiContract.KEY_NONCE))
         assertTrue(obj.has(ApiContract.KEY_SIGNATURE))
     }
+
+    // ---------------------------------------------------------------------
+    //  Device entitlements and release channels
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `the redeem path is slash api slash redeem`() {
+        assertEquals("/api/redeem", ApiContract.PATH_REDEEM)
+    }
+
+    @Test
+    fun `the entitlements JSON key is entitlements`() {
+        assertEquals("entitlements", ApiContract.KEY_ENTITLEMENTS)
+    }
+
+    @Test
+    fun `the channel JSON key is channel`() {
+        assertEquals("channel", ApiContract.KEY_CHANNEL)
+    }
+
+    @Test
+    fun `the protocol version stays at 1 despite the additions`() {
+        // Adding an optional header, a JSON key or a whole endpoint is backwards compatible:
+        // older clients ignore what they do not know. No bump, by design.
+        assertEquals(1, ApiContract.PROTOCOL_VERSION)
+    }
 }
