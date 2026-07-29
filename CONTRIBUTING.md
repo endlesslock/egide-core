@@ -25,9 +25,8 @@ one more in the same style tells us more than any description.
 code does not do, that is a real problem. We would rather be corrected in public than be quietly
 wrong.
 
-**Translation mistakes.** The user-facing strings ship in English, French, Russian and Simplified
-Chinese. The Russian and Chinese were not written by native speakers. If something reads badly, or
-worse, means something we did not intend, tell us.
+**Translation mistakes.** The user-facing strings ship in English, French and German. If something
+reads badly, or worse, means something we did not intend, tell us.
 
 ## Opening an issue
 
