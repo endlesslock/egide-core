@@ -2,9 +2,7 @@ package com.endlesslock.egide.core
 
 import android.util.Log
 import kotlinx.coroutines.delay
-import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
 
 /*
  * ============================================================================
@@ -28,12 +26,13 @@ import java.util.concurrent.TimeUnit
  *   who wants to know where data could possibly go looks here first.
  *
  * TRANSPORTS
- *   - The update channel, and enrolment with it, reuse the Tor client published
- *     by the Tor manager. Onion traffic must never leave Tor. This module does
- *     not recreate that client; it only supplies [newRequest] so that headers
- *     stay uniform across channels.
- *   - [clearnetClient]: direct HTTPS. NOW UNUSED, since enrolment moved entirely
- *     onto Tor. It is kept for a future clearnet project.
+ *   - There is ONE, and only one. The update channel, and enrolment with it,
+ *     reuse the Tor client published by the Tor manager. Onion traffic must
+ *     never leave Tor. This module does not recreate that client; it only
+ *     supplies [newRequest] so that headers stay uniform across channels.
+ *   - This object builds NO HTTP client of its own. There is no clearnet client
+ *     and no second exit point, which is the claim this file exists to let you
+ *     check.
  *
  * This module contains NO business logic: no endpoints, no schemas, no
  * sequencing. Network plumbing only.
@@ -47,23 +46,6 @@ object HttpFactory {
 
     /** Logging tag. */
     private const val TAG = "HttpFactory"
-
-    /** Default network timeouts, in seconds, shared by the clients built here. */
-    private const val TIMEOUT_SECONDS = 15L
-
-    /**
-     * CLEARNET HTTP client, direct HTTPS. NOW UNUSED: enrolment, which this client once carried,
-     * moved entirely onto Tor, and there is no caller left. Vestigial, kept for a future clearnet
-     * project. Built lazily and reused, so it holds one connection pool rather than one instance
-     * per call.
-     */
-    val clearnetClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .writeTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .build()
-    }
 
     /**
      * Builds a [Request.Builder] PRE-FILLED with the protocol version header.
