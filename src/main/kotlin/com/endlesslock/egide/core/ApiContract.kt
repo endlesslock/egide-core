@@ -90,7 +90,7 @@ object ApiContract {
     /**
      * Update: add entitlements to an ALREADY ENROLLED device. POST, Bearer JWT required.
      *
-     * This is NOT a re-enrolment. The device identity — `device_id`, public key, Keystore key —
+     * This is NOT a re-enrolment. The device identity (`device_id`, public key, Keystore key)
      * is never touched: the refusal to rotate an identity key stands. The device hands over a
      * fresh single-use token and the server ADDS whatever that token grants.
      *
@@ -149,7 +149,7 @@ object ApiContract {
      * Response key: the release channel the server resolved for this device.
      *
      * Present on both `/version` and `/api/redeem`. It is the only way a device learns that an
-     * entitlement was REVOKED server-side — without it, a downgraded device would keep showing
+     * entitlement was REVOKED server-side. Without it, a downgraded device would keep showing
      * itself as a tester while receiving stable builds.
      */
     const val KEY_CHANNEL = "channel"

@@ -93,7 +93,7 @@ compiled here. They are published for reading, not for running:
 ./gradlew test
 ```
 
-198 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
+202 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
 which a timer fires, the version code that is refused, the response that does not erase.
 
 ## What the enrolment request contains
