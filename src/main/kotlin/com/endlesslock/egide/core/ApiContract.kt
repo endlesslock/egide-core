@@ -87,10 +87,33 @@ object ApiContract {
     /** Update: download the package. GET, authenticated by the session token. */
     const val PATH_DOWNLOAD = "/download"
 
+    /**
+     * Update: add entitlements to an ALREADY ENROLLED device. POST, Bearer JWT required.
+     *
+     * This is NOT a re-enrolment. The device identity (`device_id`, public key, Keystore key)
+     * is never touched: the refusal to rotate an identity key stands. The device hands over a
+     * fresh single-use token and the server ADDS whatever that token grants.
+     *
+     * A token only ever ADDS. It never removes nor replaces an entitlement: otherwise anyone
+     * handing a key to a device holder could downgrade them. Removal is an operator action.
+     */
+    const val PATH_REDEEM = "/api/redeem"
+
     // =================== QUERY PARAMETERS ===================
 
     /** Query parameter: the currently installed version, for the server to compare against. */
     const val PARAM_CURRENT_VERSION = "current_version"
+
+    /**
+     * The channel `/version` announced, echoed back to `/download`.
+     *
+     * This is what makes the invariant "both routes serve the same channel" structural. The
+     * authorization header is OPTIONAL on `/version` and MANDATORY on `/download`: without this
+     * echo, a client that omitted it on the former was told `stable` and then handed the bytes
+     * of a pre-release. It can only RESTRICT: the server never uses it to grant a channel the
+     * device is not entitled to.
+     */
+    const val PARAM_CHANNEL = "channel"
 
     // =================== JSON KEYS (request and response bodies) ===================
     // Centralised so that app and server share an identical schema, with no magic strings.
@@ -129,6 +152,29 @@ object ApiContract {
 
     /** Boolean: is an update needed? Update. */
     const val KEY_UPDATE_NEEDED = "update_needed"
+
+    /** Response key: the device's COMPLETE set of entitlements after the call, not a delta. */
+    const val KEY_ENTITLEMENTS = "entitlements"
+
+    /**
+     * Response key: the release channel the server resolved for this device.
+     *
+     * Present on both `/version` and `/api/redeem`. It is the only way a device learns that an
+     * entitlement was REVOKED server-side. Without it, a downgraded device would keep showing
+     * itself as a tester while receiving stable builds.
+     */
+    const val KEY_CHANNEL = "channel"
+
+    // =================== MEDIA TYPES ===================
+
+    /**
+     * MIME type of the APK served by `/download`.
+     *
+     * The device REFUSES a download whose type differs. Published here because it is part of the
+     * wire contract like any path or JSON key, and it had until now lived only as a literal in
+     * the calling code — the one wire value no contract test could see.
+     */
+    const val MEDIA_TYPE_APK = "application/vnd.android.package-archive"
 
     // =================== TRANSFER OBJECTS ===================
 
@@ -182,6 +228,28 @@ object ApiContract {
             put(KEY_DEVICE_ID, deviceId)
             put(KEY_NONCE, nonce)
             put(KEY_SIGNATURE, signature)
+        }.toString()
+    }
+
+    /**
+     * Body of the entitlement request: `POST` over Tor to [PATH_REDEEM], on a device that is
+     * ALREADY registered.
+     *
+     * The token, and nothing else. The device is identified by the `sub` claim of its bearer
+     * token, which the server itself signed.
+     *
+     * ⚠️ **Never add a device identifier to this body.** Doing so would let a caller name a
+     * device OTHER than itself, and hand out entitlements it has no claim to. The absence of that
+     * field is the safeguard, so it is documented here rather than left to be rediscovered.
+     *
+     * @property enrollToken single-use token carrying the entitlements to add.
+     */
+    data class RedeemRequest(
+        val enrollToken: String
+    ) {
+        /** Serialises to JSON conforming to the contract. */
+        fun toJson(): String = JSONObject().apply {
+            put(KEY_ENROLL_TOKEN, enrollToken)
         }.toString()
     }
 }

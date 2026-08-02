@@ -75,10 +75,9 @@ rather than pretending the section is complete.
 A review recommended publishing the Android manifest, on the grounds that it is already extractable
 from any installed package. That is true, and it was still refused, for a narrower reason than
 secrecy: a customer can already read the manifest of their own device, so nothing is being kept from
-them. What publication would add is a **permanent, public, indexable** record tying the product name
-to a package identity, plus a ready-made fingerprint for anyone who wanted to write a detector. The
-value of that record to a reader is a permission list. So the permission list is published, in full,
-in the README, and the manifest is not. The reader loses nothing; the fingerprint is not created.
+them. What a reader actually needs from the manifest is the permission list, and the permission list
+is published in full in the README. Republishing the manifest itself would add nothing for that
+reader. So the permission list is published and the manifest is not.
 
 ## The trust that remains
 

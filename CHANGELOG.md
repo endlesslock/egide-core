@@ -17,7 +17,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `ClosedSurface.kt`: a declaration-only map of the closed part, so the published flow is
   complete end to end. Every operation the application can perform is listed with what it touches
   and what it sends; none of them is implemented, and a test asserts that none of them is.
-- 198 host tests covering the boundaries of every published decision.
+- The redeem path in the server contract, with the `entitlements` and `channel` response keys. A
+  token only ever adds an entitlement to an already enrolled device; the device identity is never
+  touched, and `channel` is how a device learns that an entitlement was revoked server-side.
+- 205 host tests covering the boundaries of every published decision.
 - `ARCHITECTURE.md`, explaining where the published boundary falls and what trust remains.
 - `SECURITY.md`, with a disclosure policy that explicitly does not require our permission to publish.
 - `VERIFY.md`, for checking a received package against its published hash.
