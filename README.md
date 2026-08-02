@@ -93,15 +93,22 @@ compiled here. They are published for reading, not for running:
 ./gradlew test
 ```
 
-202 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
+205 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
 which a timer fires, the version code that is refused, the response that does not erase.
 
-## What the enrolment request contains
+## What the device sends
 
-When a device registers with the server it sends four things and nothing else: the single-use
-enrolment token, an opaque device identifier, the device's public key, and optionally the hardware
-attestation chain for that key. No phone number, no contacts, no location, no identifier of the
-person, nothing about the contents of the device. This is readable in `ApiContract.kt` and pinned by
+A device makes exactly two kinds of outgoing request that carry a body, and here is all of it.
+
+**Registration.** Four things and nothing else: the single-use enrolment token, an opaque device
+identifier, the device's public key, and optionally the hardware attestation chain for that key.
+
+**Adding an entitlement**, on a device that is already registered: the token, and nothing else. Not
+even a device identifier — the device is named by the bearer token the server itself signed, so that
+no caller can name a device other than itself.
+
+No phone number, no contacts, no location, no identifier of the person, nothing about the contents
+of the device, in either case. Both bodies are readable in `ApiContract.kt` and pinned by
 `ApiContractTest.kt`.
 
 ## Two design choices that will look like bugs

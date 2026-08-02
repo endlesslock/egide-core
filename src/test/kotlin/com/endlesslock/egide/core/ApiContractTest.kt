@@ -434,6 +434,30 @@ class ApiContractTest {
     }
 
     @Test
+    fun `redeem toJson carries the token and nothing else`() {
+        // The single field IS the safeguard: a device identifier in this body would let a caller
+        // name a device other than itself and collect entitlements it has no claim to.
+        val obj = JSONObject(ApiContract.RedeemRequest("ff".repeat(32)).toJson())
+        assertEquals(1, obj.length())
+        assertTrue(obj.has(ApiContract.KEY_ENROLL_TOKEN))
+        assertEquals("ff".repeat(32), obj.getString(ApiContract.KEY_ENROLL_TOKEN))
+    }
+
+    @Test
+    fun `redeem toJson never carries a device identifier`() {
+        val obj = JSONObject(ApiContract.RedeemRequest("token").toJson())
+        assertTrue(!obj.has(ApiContract.KEY_DEVICE_ID))
+    }
+
+    @Test
+    fun `the APK media type is the Android package archive type`() {
+        // The device REFUSES a download whose type differs, so this string is part of the wire
+        // contract. It lived only as a literal in the calling code until now — the one wire value
+        // no contract test could see.
+        assertEquals("application/vnd.android.package-archive", ApiContract.MEDIA_TYPE_APK)
+    }
+
+    @Test
     fun `the protocol version stays at 1 despite the additions`() {
         // Adding an optional header, a JSON key or a whole endpoint is backwards compatible:
         // older clients ignore what they do not know. No bump, by design.

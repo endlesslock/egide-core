@@ -20,7 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The redeem path in the server contract, with the `entitlements` and `channel` response keys. A
   token only ever adds an entitlement to an already enrolled device; the device identity is never
   touched, and `channel` is how a device learns that an entitlement was revoked server-side.
-- 202 host tests covering the boundaries of every published decision.
+- 205 host tests covering the boundaries of every published decision.
 - `ARCHITECTURE.md`, explaining where the published boundary falls and what trust remains.
 - `SECURITY.md`, with a disclosure policy that explicitly does not require our permission to publish.
 - `VERIFY.md`, for checking a received package against its published hash.
