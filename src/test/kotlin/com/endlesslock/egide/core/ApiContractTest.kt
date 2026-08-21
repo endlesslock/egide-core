@@ -15,14 +15,15 @@ import org.junit.Test
  *  - Every constant for HTTP headers, endpoint paths, parameters and JSON keys: each must equal
  *    EXACTLY the expected string. The server is built as a mirror of this file, so any drift in a
  *    literal would break the contract between them.
- *  - [ApiContract.EnrollRequest.toJson]: the mandatory fields are present, and above all the
- *    semantics of the OPTIONAL `attestation_chain` field:
- *      - a null chain means the key is ABSENT,
- *      - an empty list also means the key is ABSENT,
+ *  - [ApiContract.EnrollRequest.toJson]: the mandatory fields are present, and the semantics of the
+ *    OPTIONAL `attestation_chain` and `esid` fields:
+ *      - a null (or empty) chain means the key is ABSENT,
  *      - a non-empty list means the key is PRESENT, as a JSON array with the right content in the
- *        right order.
- *    Special characters survive; no unexpected key appears.
+ *        right order,
+ *      - a null or blank `esid` means the key is ABSENT, a non-blank one means it is PRESENT.
+ *    There is NO enrolment token any more: the body must never carry an `enroll_token`.
  *  - [ApiContract.VerifyRequest.toJson]: the three fields are present, and no unexpected key.
+ *  - The prepaid-credit and account keys added with the licensing/portal work.
  *
  * Everything here is PURE, with no Android context and no keystore.
  */
@@ -103,6 +104,11 @@ class ApiContractTest {
     }
 
     @Test
+    fun `the account path is slash api slash account`() {
+        assertEquals("/api/account", ApiContract.PATH_ACCOUNT)
+    }
+
+    @Test
     fun `every path starts with a slash`() {
         val paths = listOf(
             ApiContract.PATH_ENROLL,
@@ -110,7 +116,8 @@ class ApiContractTest {
             ApiContract.PATH_NONCE,
             ApiContract.PATH_VERIFY,
             ApiContract.PATH_VERSION,
-            ApiContract.PATH_DOWNLOAD
+            ApiContract.PATH_DOWNLOAD,
+            ApiContract.PATH_ACCOUNT
         )
         paths.forEach { assertTrue("Path without a leading slash: $it", it.startsWith("/")) }
     }
@@ -122,6 +129,11 @@ class ApiContractTest {
     @Test
     fun `the current version parameter is current_version`() {
         assertEquals("current_version", ApiContract.PARAM_CURRENT_VERSION)
+    }
+
+    @Test
+    fun `the channel parameter is channel`() {
+        assertEquals("channel", ApiContract.PARAM_CHANNEL)
     }
 
     // ==================================================================
@@ -136,11 +148,6 @@ class ApiContractTest {
     @Test
     fun `the public_key key is public_key`() {
         assertEquals("public_key", ApiContract.KEY_PUBLIC_KEY)
-    }
-
-    @Test
-    fun `the enroll_token key is enroll_token`() {
-        assertEquals("enroll_token", ApiContract.KEY_ENROLL_TOKEN)
     }
 
     @Test
@@ -179,18 +186,93 @@ class ApiContractTest {
     }
 
     @Test
+    fun `the entitlements key is entitlements`() {
+        assertEquals("entitlements", ApiContract.KEY_ENTITLEMENTS)
+    }
+
+    @Test
+    fun `the channel key is channel`() {
+        assertEquals("channel", ApiContract.KEY_CHANNEL)
+    }
+
+    // -- Prepaid credit and account keys (licensing) --
+
+    @Test
+    fun `the seconds_remaining key is seconds_remaining`() {
+        assertEquals("seconds_remaining", ApiContract.KEY_SECONDS_REMAINING)
+    }
+
+    @Test
+    fun `the active_until key is active_until`() {
+        assertEquals("active_until", ApiContract.KEY_ACTIVE_UNTIL)
+    }
+
+    @Test
+    fun `the server_time key is server_time`() {
+        assertEquals("server_time", ApiContract.KEY_SERVER_TIME)
+    }
+
+    @Test
+    fun `the unlimited key is unlimited`() {
+        assertEquals("unlimited", ApiContract.KEY_UNLIMITED)
+    }
+
+    @Test
+    fun `the device_uid key is device_uid`() {
+        assertEquals("device_uid", ApiContract.KEY_DEVICE_UID)
+    }
+
+    @Test
+    fun `the esid key is esid`() {
+        assertEquals("esid", ApiContract.KEY_ESID)
+    }
+
+    @Test
+    fun `the bootstrap_token key is bootstrap_token`() {
+        assertEquals("bootstrap_token", ApiContract.KEY_BOOTSTRAP_TOKEN)
+    }
+
+    @Test
+    fun `the device_uid_absent error code is device_uid_absent`() {
+        assertEquals("device_uid_absent", ApiContract.ERREUR_DEVICE_UID_ABSENT)
+    }
+
+    @Test
+    fun `the error key is erreur`() {
+        assertEquals("erreur", ApiContract.KEY_ERREUR)
+    }
+
+    @Test
+    fun `there is no enrolment token key on the contract`() {
+        // The enrolment token was removed on 2026-08-17: enrolment is authorised by hardware
+        // attestation plus the esid, not a token. This guards against it being reintroduced.
+        val fields = ApiContract::class.java.declaredFields.map { it.name }
+        assertFalse("An enrol-token constant reappeared", fields.any { it.contains("ENROLL_TOKEN") })
+        assertFalse("A redeem path constant reappeared", fields.any { it == "PATH_REDEEM" })
+    }
+
+    @Test
     fun `every JSON key is distinct`() {
         val keys = listOf(
             ApiContract.KEY_DEVICE_ID,
             ApiContract.KEY_PUBLIC_KEY,
-            ApiContract.KEY_ENROLL_TOKEN,
             ApiContract.KEY_ATTESTATION_CHAIN,
             ApiContract.KEY_NONCE,
             ApiContract.KEY_SIGNATURE,
             ApiContract.KEY_JWT,
             ApiContract.KEY_EXPIRES_IN,
             ApiContract.KEY_LATEST_VERSION,
-            ApiContract.KEY_UPDATE_NEEDED
+            ApiContract.KEY_UPDATE_NEEDED,
+            ApiContract.KEY_ENTITLEMENTS,
+            ApiContract.KEY_CHANNEL,
+            ApiContract.KEY_SECONDS_REMAINING,
+            ApiContract.KEY_ACTIVE_UNTIL,
+            ApiContract.KEY_SERVER_TIME,
+            ApiContract.KEY_UNLIMITED,
+            ApiContract.KEY_DEVICE_UID,
+            ApiContract.KEY_ESID,
+            ApiContract.KEY_BOOTSTRAP_TOKEN,
+            ApiContract.KEY_ERREUR
         )
         assertEquals("Some JSON keys are duplicated", keys.size, keys.toSet().size)
     }
@@ -201,60 +283,55 @@ class ApiContractTest {
 
     @Test
     fun `enroll toJson produces valid, parseable JSON`() {
-        val json = ApiContract.EnrollRequest("tok", "dev", "pub").toJson()
+        val json = ApiContract.EnrollRequest("dev", "pub").toJson()
         // Must not throw: this is a well-formed JSON object.
         val obj = JSONObject(json)
-        assertEquals("tok", obj.getString("enroll_token"))
+        assertEquals("dev", obj.getString("device_id"))
     }
 
     @Test
-    fun `enroll toJson carries the three mandatory fields with the right values`() {
+    fun `enroll toJson carries the two mandatory fields with the right values`() {
         val obj = JSONObject(
             ApiContract.EnrollRequest(
-                enrollToken = "token-XYZ",
                 deviceId = "device-42",
                 publicKey = "PUBLIC_KEY_BASE64"
             ).toJson()
         )
-        assertEquals("token-XYZ", obj.getString("enroll_token"))
         assertEquals("device-42", obj.getString("device_id"))
         assertEquals("PUBLIC_KEY_BASE64", obj.getString("public_key"))
     }
 
     @Test
-    fun `enroll toJson with a null attestation omits the attestation_chain key`() {
+    fun `enroll toJson never carries an enrolment token`() {
+        // There is no token any more; the body must not resurrect one.
         val obj = JSONObject(
-            ApiContract.EnrollRequest("t", "d", "p", attestationChain = null).toJson()
+            ApiContract.EnrollRequest("d", "p", attestationChain = listOf("c"), esid = "e").toJson()
         )
-        assertFalse(obj.has("attestation_chain"))
-        // Exactly the three mandatory fields.
-        assertEquals(setOf("enroll_token", "device_id", "public_key"), keysOf(obj))
+        assertFalse(obj.has("enroll_token"))
+        assertFalse(obj.has("token"))
     }
 
     @Test
-    fun `enroll toJson by default, with no attestation, omits the attestation_chain key`() {
-        // The attestationChain parameter defaults to null.
-        val obj = JSONObject(ApiContract.EnrollRequest("t", "d", "p").toJson())
+    fun `enroll toJson with no optional field carries exactly the two mandatory keys`() {
+        val obj = JSONObject(ApiContract.EnrollRequest("d", "p").toJson())
         assertFalse(obj.has("attestation_chain"))
-        assertEquals(3, obj.length())
+        assertFalse(obj.has("esid"))
+        assertEquals(setOf("device_id", "public_key"), keysOf(obj))
     }
 
     @Test
     fun `enroll toJson with an EMPTY attestation list omits the key`() {
-        // Edge case: a list is supplied but is empty, so the emptiness check must exclude it.
         val obj = JSONObject(
-            ApiContract.EnrollRequest("t", "d", "p", attestationChain = emptyList()).toJson()
+            ApiContract.EnrollRequest("d", "p", attestationChain = emptyList()).toJson()
         )
         assertFalse(obj.has("attestation_chain"))
-        assertEquals(3, obj.length())
+        assertEquals(2, obj.length())
     }
 
     @Test
     fun `enroll toJson with a single attestation certificate exposes a correct JSON array`() {
         val obj = JSONObject(
-            ApiContract.EnrollRequest(
-                "t", "d", "p", attestationChain = listOf("CERT_A")
-            ).toJson()
+            ApiContract.EnrollRequest("d", "p", attestationChain = listOf("CERT_A")).toJson()
         )
         assertTrue(obj.has("attestation_chain"))
         val arr = obj.getJSONArray("attestation_chain")
@@ -266,7 +343,7 @@ class ApiContractTest {
     fun `enroll toJson preserves both the content AND the order of the attestation chain`() {
         val chain = listOf("leaf", "intermediate", "root")
         val obj = JSONObject(
-            ApiContract.EnrollRequest("t", "d", "p", attestationChain = chain).toJson()
+            ApiContract.EnrollRequest("d", "p", attestationChain = chain).toJson()
         )
         val arr: JSONArray = obj.getJSONArray("attestation_chain")
         assertEquals(3, arr.length())
@@ -277,35 +354,46 @@ class ApiContractTest {
     }
 
     @Test
-    fun `enroll toJson with an attestation carries exactly four keys`() {
+    fun `enroll toJson with a blank esid omits the esid key`() {
+        val obj = JSONObject(ApiContract.EnrollRequest("d", "p", esid = "").toJson())
+        assertFalse(obj.has("esid"))
+    }
+
+    @Test
+    fun `enroll toJson with an esid carries it`() {
+        val obj = JSONObject(ApiContract.EnrollRequest("d", "p", esid = "ESID-99").toJson())
+        assertTrue(obj.has("esid"))
+        assertEquals("ESID-99", obj.getString("esid"))
+    }
+
+    @Test
+    fun `enroll toJson with attestation AND esid carries exactly four keys`() {
         val obj = JSONObject(
             ApiContract.EnrollRequest(
-                "t", "d", "p", attestationChain = listOf("c1", "c2")
+                "d", "p", attestationChain = listOf("c1", "c2"), esid = "e"
             ).toJson()
         )
         assertEquals(
-            setOf("enroll_token", "device_id", "public_key", "attestation_chain"),
+            setOf("device_id", "public_key", "attestation_chain", "esid"),
             keysOf(obj)
         )
     }
 
     @Test
-    fun `enroll toJson introduces no unexpected key when there is no attestation`() {
-        val obj = JSONObject(ApiContract.EnrollRequest("t", "d", "p").toJson())
-        val allowed = setOf("enroll_token", "device_id", "public_key", "attestation_chain")
+    fun `enroll toJson introduces no unexpected key`() {
+        val obj = JSONObject(
+            ApiContract.EnrollRequest("d", "p", attestationChain = listOf("c"), esid = "e").toJson()
+        )
+        val allowed = setOf("device_id", "public_key", "attestation_chain", "esid")
         keysOf(obj).forEach { assertTrue("Unexpected key: $it", it in allowed) }
     }
 
     @Test
     fun `enroll toJson preserves special characters in the values`() {
         // Quotes, backslash, braces, newline, unicode: all must survive a round trip.
-        val specialToken = "a\"b\\c{}/e\n\t€"
-        val specialDevice = "id-special-€"
-        val specialPub = "+/=base64==e"
-        val obj = JSONObject(
-            ApiContract.EnrollRequest(specialToken, specialDevice, specialPub).toJson()
-        )
-        assertEquals(specialToken, obj.getString("enroll_token"))
+        val specialDevice = "id-special-€\"\\{}"
+        val specialPub = "+/=base64==e\n\t"
+        val obj = JSONObject(ApiContract.EnrollRequest(specialDevice, specialPub).toJson())
         assertEquals(specialDevice, obj.getString("device_id"))
         assertEquals(specialPub, obj.getString("public_key"))
     }
@@ -314,9 +402,7 @@ class ApiContractTest {
     fun `enroll toJson preserves special characters inside the attestation chain`() {
         val specialCert = "MIIB\"\\/\n+=="
         val obj = JSONObject(
-            ApiContract.EnrollRequest(
-                "t", "d", "p", attestationChain = listOf(specialCert, "plain")
-            ).toJson()
+            ApiContract.EnrollRequest("d", "p", attestationChain = listOf(specialCert, "plain")).toJson()
         )
         val arr = obj.getJSONArray("attestation_chain")
         assertEquals(specialCert, arr.getString(0))
@@ -324,27 +410,25 @@ class ApiContractTest {
     }
 
     @Test
-    fun `enroll toJson accepts empty values without breaking`() {
-        // Empty strings are valid; only an absent or empty LIST triggers the omission.
-        val obj = JSONObject(ApiContract.EnrollRequest("", "", "").toJson())
-        assertEquals("", obj.getString("enroll_token"))
+    fun `enroll toJson accepts empty mandatory values without breaking`() {
+        // Empty strings are valid; only an absent or empty LIST, or a blank esid, triggers omission.
+        val obj = JSONObject(ApiContract.EnrollRequest("", "").toJson())
         assertEquals("", obj.getString("device_id"))
         assertEquals("", obj.getString("public_key"))
         assertFalse(obj.has("attestation_chain"))
+        assertFalse(obj.has("esid"))
     }
 
     @Test
     fun `enroll toJson really uses the contract key constants`() {
         // Guarantees the serialisation references the KEY_ constants, with no divergent literal.
         val obj = JSONObject(
-            ApiContract.EnrollRequest(
-                "t", "d", "p", attestationChain = listOf("c")
-            ).toJson()
+            ApiContract.EnrollRequest("d", "p", attestationChain = listOf("c"), esid = "e").toJson()
         )
-        assertTrue(obj.has(ApiContract.KEY_ENROLL_TOKEN))
         assertTrue(obj.has(ApiContract.KEY_DEVICE_ID))
         assertTrue(obj.has(ApiContract.KEY_PUBLIC_KEY))
         assertTrue(obj.has(ApiContract.KEY_ATTESTATION_CHAIN))
+        assertTrue(obj.has(ApiContract.KEY_ESID))
     }
 
     // ==================================================================
@@ -415,39 +499,8 @@ class ApiContractTest {
     }
 
     // ---------------------------------------------------------------------
-    //  Device entitlements and release channels
+    //  Media type
     // ---------------------------------------------------------------------
-
-    @Test
-    fun `the redeem path is slash api slash redeem`() {
-        assertEquals("/api/redeem", ApiContract.PATH_REDEEM)
-    }
-
-    @Test
-    fun `the entitlements JSON key is entitlements`() {
-        assertEquals("entitlements", ApiContract.KEY_ENTITLEMENTS)
-    }
-
-    @Test
-    fun `the channel JSON key is channel`() {
-        assertEquals("channel", ApiContract.KEY_CHANNEL)
-    }
-
-    @Test
-    fun `redeem toJson carries the token and nothing else`() {
-        // The single field IS the safeguard: a device identifier in this body would let a caller
-        // name a device other than itself and collect entitlements it has no claim to.
-        val obj = JSONObject(ApiContract.RedeemRequest("ff".repeat(32)).toJson())
-        assertEquals(1, obj.length())
-        assertTrue(obj.has(ApiContract.KEY_ENROLL_TOKEN))
-        assertEquals("ff".repeat(32), obj.getString(ApiContract.KEY_ENROLL_TOKEN))
-    }
-
-    @Test
-    fun `redeem toJson never carries a device identifier`() {
-        val obj = JSONObject(ApiContract.RedeemRequest("token").toJson())
-        assertTrue(!obj.has(ApiContract.KEY_DEVICE_ID))
-    }
 
     @Test
     fun `the APK media type is the Android package archive type`() {

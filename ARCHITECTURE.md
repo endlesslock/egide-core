@@ -6,7 +6,7 @@ not for someone trying to rebuild it.
 
 ## The shape of the system
 
-Egide has four moving parts. Only the first is partly published.
+Egide has five moving parts. Only the first is partly published.
 
 **The application**, on the phone. It runs as device owner on GrapheneOS, which is what gives it the
 authority to erase data and to resist being removed. A resident foreground service watches the
@@ -18,7 +18,13 @@ device identifiers and public keys. It holds no secret belonging to any device, 
 breach of it does not compromise a phone.
 
 **The remote erase endpoint**, one per phone, also an onion service. It does one thing: when the
-owner starts it, it answers, and the phone that polls it erases itself.
+owner starts it, it answers, and the phone that polls it erases itself. The phone sends it nothing.
+
+**The licensing and recharge portal**, a separate onion service. The app talks to it to keep its
+prepaid credit and to set the web-login password for the account. Its complete app-facing contract
+is published in `PortailContract.kt`; the credit and premium-gate decisions are in
+`LicenceDecision.kt`, and the captcha proof-of-work solver in `McaptchaSolver.kt`. The client that
+performs those calls is not published.
 
 **The provisioning tooling**, used once per device before it reaches the customer. Not published.
 
@@ -46,8 +52,12 @@ about how to stop it from erasing.
 | Update bounds | `OtaLimits.kt` | The ceilings on download size and session token lifetime. |
 | Settings | `SettingsValidation.kt` | Every bound on every setting that can lead to an erase. |
 | Tor plumbing | `TorParsing.kt` | How the SOCKS port and bootstrap state are parsed. |
-| Server contract | `ApiContract.kt` | Every endpoint, header and JSON field. In particular, everything the device sends. |
-| The closed part, mapped | `ClosedSurface.kt` | Every operation the application can perform, what it touches, what it sends. Declarations only. |
+| Server contract | `ApiContract.kt` | The enrolment and update server: every endpoint, header and JSON field, including the enrolment body in full. |
+| Portal contract | `PortailContract.kt` | The licensing/recharge portal: every path and JSON field. |
+| Licensing | `LicenceDecision.kt` | How prepaid credit is read and which triggers the premium gate inhibits. |
+| Freemium split | `WipeSource.kt` | Which erase triggers are free for life and which are premium. |
+| Captcha | `McaptchaSolver.kt` | The portal's on-device proof-of-work solver. |
+| The closed part, mapped | `ClosedSurface.kt` | Every operation the application can perform, what it touches, what it sends — across all three onion services. Declarations only. |
 
 Four further files sit in `android-extracts/`. They depend on the Android framework, so they cannot
 be compiled in this project and are published for reading only: `DeviceKey.kt` (the identity key
@@ -95,9 +105,11 @@ We would rather write that down here than let you find it out later.
 
 ## How to read the code, if you only have twenty minutes
 
-1. `ApiContract.kt`, the `EnrollRequest` class. That is everything the device sends. Check that no
-   personal data appears in it.
-2. `HttpFactory.kt` in `android-extracts/`. That is the only outbound HTTP configuration.
+1. `ApiContract.kt`, the `EnrollRequest` class, then `PortailContract.kt`, and the *What the device
+   sends* section of the README, which lists every outbound request across the three onion services.
+   Check that no personal data appears anywhere in it.
+2. `HttpFactory.kt` in `android-extracts/`. That is the only outbound HTTP configuration; all three
+   services go through it.
 3. `TriggerLogic.kt`. That is every circumstance in which data is destroyed.
 4. `ApkVerificationLogic.kt`, then the "Honest limitations" section of the README, in that order.
 

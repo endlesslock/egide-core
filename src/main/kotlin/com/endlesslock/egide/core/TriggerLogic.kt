@@ -7,8 +7,8 @@ package com.endlesslock.egide.core
  * Why this file exists:
  *  - The anti-theft core rests on time comparisons (prolonged lock, prolonged airplane mode,
  *    prolonged absence of network) and on a failed-passcode threshold. As long as that logic
- *    lived inside Android components, it could not be tested on a host JVM without emulating
- *    the framework.
+ *    lived inside Android components (which depend on `Context`, `DevicePolicyManager`,
+ *    `SharedPreferences`…), it could not be tested on a host JVM without emulating the framework.
  *  - Isolated here as pure functions (inputs in, deterministic output out), it can be covered by
  *    ordinary JUnit tests, including the evasion edge cases (clock rollback, missing or invalid
  *    values), with no device and no emulator involved.
@@ -27,57 +27,53 @@ object TriggerLogic {
      * Fallback lock time limit, in seconds, used **only when the persisted value cannot be read**:
      * absent, empty, or non-numeric.
      *
-     * This is NOT the value a device ships with. Setup writes a real threshold, 72 hours, before
-     * the device reaches its owner, and the README documents that default. This constant covers
-     * the different case where the stored setting is missing or corrupt, and the question is what
-     * to do in the absence of an instruction.
-     *
      * The answer is **0, meaning disarmed**, matching the airplane and network timers where an
-     * absent value or 0 also means disabled. A threshold of 0 is read by [lockDurationShouldWipe]
-     * as "disarmed", so an unreadable configuration NEVER erases anything.
+     * absent value or 0 also means disabled. A threshold of 0 is read as "disarmed" by
+     * [deadManTick], so this fallback is SAFE: a missing or unreadable setting NEVER triggers an
+     * erase.
      *
-     * Deliberate trade-off, **fail-open on this specific fallback**: we would rather lose the lock
-     * timer on a device whose settings became unreadable than erase one on a threshold nobody
-     * chose. The other defence legs (failed passcode attempts, integrity checks, the remote
-     * signal, and the airplane and network timers) are unaffected and stay armed.
+     * DELIBERATE TRADE-OFF: the fallback is **fail-open** — an unconfigured threshold (absent,
+     * empty, or non-numeric) leaves the lock trigger INACTIVE rather than falling back to some
+     * arbitrary value. We favour inter-trigger consistency and predictability ("nothing is armed
+     * until something is entered") over a default time-based protection. The other legs of the
+     * defence (failed passcode, tamper, the remote channel, the airplane/network timers when they
+     * are configured) remain in force.
      */
     const val DEFAULT_LOCK_LIMIT_SECONDS = 0
 
-    /** Seconds in an hour. The airplane and network thresholds are configured in HOURS. */
+    /** Number of seconds in an hour (the airplane/network thresholds are configured in HOURS). */
     const val SECONDS_PER_HOUR = 3600L
 
     /** Default failed-passcode threshold when the persisted value is absent or invalid. */
-    const val DEFAULT_MAX_FAILED_ATTEMPTS = 5
+    const val DEFAULT_MAX_FAILED_ATTEMPTS = 10
 
-    // Guard against a FORWARD CLOCK JUMP producing a false positive.
+    // ── Anti false-positive on a FORWARD CLOCK JUMP ───────────────────────────────────────────────
+    // The dead-man timers (TIMESTAMP mode) trust the wall clock (epoch) to count time spent powered
+    // off. A device whose RTC was wrong or drained can boot with an ABERRANT clock and then resync
+    // (NTP): the `*_SINCE` written under the wrong clock becomes very old relative to the corrected
+    // `now`, so `now - since` instantly crosses 72 h → the LEGITIMATE owner's phone is erased.
+    // `DISALLOW_CONFIG_DATE_TIME` blocks manual setting, not automatic correction.
     //
-    // The dead-man timers trust the wall clock to count time spent powered off. A device whose
-    // real-time clock was wrong or fully discharged can boot with an absurd clock and then
-    // resynchronise over the network. The "since" timestamp written under the wrong clock then
-    // looks very old against the corrected "now": the elapsed time crosses the threshold
-    // instantly, and the LEGITIMATE owner's phone gets erased. Blocking manual date changes does
-    // not help here, because the correction is automatic.
-    //
-    // The counter-measure is pure and conservative. It can never reject a legitimate timer,
-    // because both bounds sit far outside any realistic configuration:
-    //  - FLOOR: a timestamp earlier than 2024-01-01 can only be a clock-glitch artefact, since
-    //    the application did not exist then. Treat it as corrupt.
-    //  - CEILING: a gap larger than about ten years cannot correspond to any threshold the user
-    //    interface can collect, since it collects hours. Treat it as corrupt.
-    // In both cases we do NOT trigger, and we re-anchor the timer on "now", restarting the count
-    // from a sane instant instead of erasing on an untrustworthy time base.
+    // PURE, SAFE guard (it can NEVER reject a legitimate timer, because these bounds are outside any
+    // realistic configuration):
+    //  - FLOOR: a timestamp earlier than 2024-01-01 must be a clock-glitch artefact (the app did not
+    //    exist) → treated as corrupt.
+    //  - CEILING: a gap larger than ~10 years cannot correspond to any enterable threshold (the UI
+    //    collects hours) → corruption.
+    // In both cases we do NOT trigger, and we re-anchor the timer on `now` (restart the countdown
+    // from a sane instant) instead of erasing on an unreliable time base.
 
-    /** Plausible epoch floor, in seconds: 2024-01-01 UTC. Anything earlier is aberrant. */
+    /** Plausible-epoch floor (epoch s): 2024-01-01 UTC. Any earlier `since`/`now` is aberrant. */
     const val PLAUSIBLE_EPOCH_FLOOR_SECONDS = 1_704_067_200L
 
-    /** Maximum plausible elapsed time for a timer, in seconds: about ten years. */
+    /** Maximum plausible timer gap (seconds): ~10 years. Beyond this, the timestamp is corrupt. */
     const val MAX_PLAUSIBLE_ELAPSED_SECONDS = 315_360_000L
 
     /**
-     * Is the (now, since) pair temporally plausible enough to decide on an erase?
+     * Is a (now, since) pair time-plausible enough to decide an erase?
      *
-     * @return `false` if either `now` or `since` predates the epoch floor, or if the gap exceeds
-     *         the ceiling (clock jump or corrupt timestamp). `true` if the time base is sound.
+     * @return `false` if `now` OR `since` is earlier than the epoch floor, or if the gap exceeds the
+     *         ceiling (clock jump / corrupt timestamp). `true` if the time base is sane.
      */
     fun timestampsPlausibles(now: Long, since: Long): Boolean {
         if (now < PLAUSIBLE_EPOCH_FLOOR_SECONDS) return false
@@ -87,22 +83,23 @@ object TriggerLogic {
     }
 
     /**
-     * Converts the persisted "time before term" value into seconds.
+     * Converts the persisted "time before term" value to seconds.
      *
-     * Deliberately keeps the historical `(value * 60) * 60` computation: a non-zero value is
-     * therefore read as HOURS. A value of `"72"` still yields 259 200 seconds.
+     * Keeps the historical `(value * 60) * 60` computation on purpose: a non-zero value is therefore
+     * interpreted in HOURS (×3600). A value of `"72"` always yields 259 200 s.
      *
-     * The fallback on an absent or unparseable value is **`0`**, which [lockDurationShouldWipe]
-     * treats as disabled, matching the airplane and network timers. Consequences:
-     *  - `null`, `"abc"`, `""`, `"   "` (non-numeric; parsing does not trim) map to `0`.
-     *  - `"0"` maps to `0`, already disabled.
-     *  - `"72"` maps to `259 200`; `"1"` maps to `3 600`.
-     *  - `"-1"` maps to `-3 600`, negative, hence still disabled downstream.
+     * The fallback on absence/error is **`0`** (= trigger DISABLED via the guard in [deadManTick]),
+     * to align with the airplane/network timers (where absent/0 = disabled). Consequences:
+     *  - `null` / `"abc"` / `""` / `"   "` (non-numeric; `toLongOrNull` does not trim spaces) → `0`.
+     *  - `"0"` → `0` (already disabled).
+     *  - `"72"` → `259 200` (unchanged); `"1"` → `3 600` (unchanged).
+     *  - `"-1"` → `-3 600` (negative → always `<= 0` = disabled in [deadManTick]).
      *
-     * Deliberate trade-off, **fail-open**: see [DEFAULT_LOCK_LIMIT_SECONDS].
+     * DELIBERATE TRADE-OFF: **fail-open** (see [DEFAULT_LOCK_LIMIT_SECONDS]) — an unconfigured
+     * threshold does NOT trigger an erase.
      *
-     * @param timeBeforeTermRaw the persisted value, possibly null or non-numeric.
-     * @return the limit in seconds. Zero or negative means the trigger is disabled.
+     * @param timeBeforeTermRaw persisted value (string), possibly null or non-numeric.
+     * @return the time limit in seconds (`0` or negative = trigger disabled).
      */
     fun lockTimeLimitSeconds(timeBeforeTermRaw: String?): Int {
         val hours = timeBeforeTermRaw?.toLongOrNull() ?: return DEFAULT_LOCK_LIMIT_SECONDS
@@ -114,150 +111,193 @@ object TriggerLogic {
         return seconds.toInt()
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //  FORMER CORE, REMOVED
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // Earlier versions of this file exposed `lockDurationShouldWipe`, `lockTimerDecision`/
+    // `LockDecision` and `isolationDecision`/`IsolationDecision`, which decided an erase by comparing
+    // two readings of the WALL clock. That is exactly what the core below replaces, and leaving them
+    // in place would have been a trap: a future maintainer could re-wire them without seeing that
+    // they are defeatable by a simple clock change. The state machine they carried (arm / re-arm /
+    // decide) now lives in a single shared place in the Android layer, used by the service and the
+    // watchdog alike.
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //  DEAD-MAN TIMER CORE (TIMESTAMP mode), resistant to clock changes
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT THIS REPLACES. The three destructive timers (prolonged lock, airplane mode, absence of
+    // network) used to decide on `now - since`, two readings of the WALL clock. That clock is
+    // settable: moving it forward four days crossed a 72 h threshold instantly; moving it back froze
+    // the countdown. `DISALLOW_CONFIG_DATE_TIME` forbids manual setting, but neither automatic
+    // correction (NTP/NITZ, including from a hostile network) nor a tampered RTC on a powered-off
+    // device.
+    //
+    // THE PRINCIPLE. Two clocks, each used only where it can be trusted:
+    //  - `SystemClock.elapsedRealtime()` is MONOTONIC, includes deep sleep, and cannot be set. It
+    //    therefore measures exactly the time elapsed WITHIN one boot session — but it restarts from
+    //    zero at every boot.
+    //  - The wall clock is the only witness of time spent POWERED OFF. It is consulted ONLY for that
+    //    period, never to measure powered-on time.
+    // A boot boundary is detected with `Settings.Global.BOOT_COUNT`; failing that, a monotonic value
+    // that restarted lower can only mean a reboot.
+    //
+    // DIRECTION OF ERRORS. Erasing EARLY destroys a legitimate user's data; erasing LATE only delays
+    // a protection. Any doubtful case therefore credits the DEMONSTRABLE MINIMUM — at worst the time
+    // elapsed since boot, which no clock change can reduce.
+    //
+    // OUT OF SCOPE (accepted limit): a tampered RTC while the device is POWERED OFF is
+    // indistinguishable from real powered-off time — it is the only measure available. That scenario
+    // works AGAINST whoever holds the device: moving the clock forward triggers the erase sooner, so
+    // they gain nothing.
+
     /**
-     * Has the device stayed locked long enough to reach the limit? This is the dead-man's switch.
+     * Persisted reference of a dead-man timer (TIMESTAMP mode).
      *
-     * @param now current instant, epoch seconds.
-     * @param lockedSince instant of the last lock, epoch seconds. Zero or less means not locked.
-     * @param timeLimitSeconds the limit in seconds, see [lockTimeLimitSeconds].
-     * @return `true` if the erase should be triggered.
-     *
-     * Anti-evasion: if `now < lockedSince` (clock rolled backwards), elapsed time is negative, so
-     * nothing fires and nothing behaves erratically.
-     *
-     * Anti-false-positive: a limit of zero or less means "disarmed", consistent with the airplane
-     * and network timers where 0 hours means disabled. Without this guard, a threshold of 0, which
-     * a user may well enter believing it disables the feature, made `(now - lockedSince) >= 0`
-     * always true, erasing the device almost the moment the screen turned off.
+     * @param wallS wall clock at the last measurement point (epoch s).
+     * @param elapsedS `SystemClock.elapsedRealtime()` in seconds at the same instant.
+     * @param bootCount `Settings.Global.BOOT_COUNT` at the same instant; a negative value = unavailable.
+     * @param creditedS time already credited and validated (seconds). This is what is compared to the threshold.
      */
-    fun lockDurationShouldWipe(now: Long, lockedSince: Long, timeLimitSeconds: Int): Boolean {
-        if (lockedSince <= 0L) return false
-        if (timeLimitSeconds <= 0) return false
-        // Never erase on an untrustworthy time base. The lock timer re-anchors on the next
-        // screen-off anyway.
-        if (!timestampsPlausibles(now, lockedSince)) return false
-        return (now - lockedSince) >= timeLimitSeconds
+    data class DeadManRef(
+        val wallS: Long,
+        val elapsedS: Long,
+        val bootCount: Long,
+        val creditedS: Long,
+    )
+
+    /** Outcome of a tick: in both cases, [ref] is the state to persist BEFORE any action. */
+    sealed class DeadManOutcome {
+        abstract val ref: DeadManRef
+        /** Threshold not reached (or timer disarmed): persist [ref] and continue. */
+        data class Continue(override val ref: DeadManRef) : DeadManOutcome()
+        /** Threshold reached: persist [ref], then trigger the erase. */
+        data class Fire(override val ref: DeadManRef) : DeadManOutcome()
     }
 
     /**
-     * Decision of the prolonged-lock timer in TIMESTAMP mode, symmetrical to [isolationDecision].
+     * Tolerance on the reconstructed boot instant (`wall - monotonic`), in seconds.
+     *
+     * Used ONLY when `BOOT_COUNT` is unreadable. Two readings within the same session give the same
+     * value to the granularity of a second (both clocks advance together); we allow two minutes to
+     * absorb rounding, a minor clock correction, and the polling interval.
      */
-    sealed class LockDecision {
-        /** Nothing to do: not locked, trigger disarmed, or limit not reached. */
-        object NoOp : LockDecision()
-        /** Time base corrupt (clock jump): RE-ANCHOR the timer by persisting [since]. */
-        data class Reanchor(val since: Long) : LockDecision()
-        /** The limit has been reached: trigger the erase. */
-        object Wipe : LockDecision()
-    }
+    const val TOLERANCE_INSTANT_DEMARRAGE_S = 120L
+
+    /** Arms a timer: no credited time, references taken at the current instant. */
+    fun deadManArm(nowWallS: Long, nowElapsedS: Long, nowBootCount: Long): DeadManRef =
+        DeadManRef(wallS = nowWallS, elapsedS = nowElapsedS, bootCount = nowBootCount, creditedS = 0L)
 
     /**
-     * Computes the prolonged-lock timer decision, mirroring [isolationDecision].
+     * Resumes a timer armed by the OLD format (a single wall-clock timestamp `*_SINCE`).
      *
-     * Robustness note: [lockDurationShouldWipe] returns `false` when the time base is aberrant,
-     * which prevents the clock-jump false positive, but on its own it never re-anchored the stored
-     * lock timestamp, unlike the airplane and network timers which heal themselves through
-     * [IsolationDecision.StartTimer]. After a clock glitch had written an implausible
-     * `lockedSince`, the lock dead-man therefore stayed **disarmed** for as long as that value
-     * persisted, that is until an unlock, which presupposes the very access the timer exists to
-     * deny. This decision restores the re-anchoring.
-     *
-     * @param now current instant, epoch seconds.
-     * @param lockedSince instant of the last lock, epoch seconds. Zero or less means not locked.
-     * @param timeLimitSeconds the limit in seconds. Zero or less means disarmed.
-     * @return [LockDecision.Wipe] when the limit is reached on a sound time base;
-     *         [LockDecision.Reanchor] when the base is corrupt but `now` is trustworthy;
-     *         [LockDecision.NoOp] otherwise, including when `now` itself sits below the epoch
-     *         floor, in which case the current clock is not trustworthy and we simply wait.
+     * Called once, at the first evaluation after an application update: without it, a running timer
+     * would be reset by the update itself (a device already locked for two days would restart from
+     * zero). The wall-clock gap is credited only if it is plausible; otherwise it restarts from
+     * zero, never on a doubtful base.
      */
-    fun lockTimerDecision(now: Long, lockedSince: Long, timeLimitSeconds: Int): LockDecision {
-        if (lockedSince <= 0L) return LockDecision.NoOp
-        if (timeLimitSeconds <= 0) return LockDecision.NoOp
-        if (!timestampsPlausibles(now, lockedSince)) {
-            // Exact mirror of the "corrupt timestamp" branch in isolationDecision: if `now` is
-            // itself below the floor, the clock is not yet trustworthy, so anchor nothing.
-            return if (now < PLAUSIBLE_EPOCH_FLOOR_SECONDS) LockDecision.NoOp else LockDecision.Reanchor(now)
-        }
-        return if ((now - lockedSince) >= timeLimitSeconds) LockDecision.Wipe else LockDecision.NoOp
-    }
-
-    /**
-     * Decision for a network-isolation trigger: airplane mode, or absence of any network.
-     *
-     * Models the state transitions of a persisted timer without touching storage. The caller
-     * applies whatever decision comes back.
-     */
-    sealed class IsolationDecision {
-        /** Nothing to do: condition active but limit not reached, or trigger disabled with no timer. */
-        object NoOp : IsolationDecision()
-        /** First detection: start the timer by persisting [since]. */
-        data class StartTimer(val since: Long) : IsolationDecision()
-        /** The condition is gone, or the trigger is disabled: reset the timer to zero. */
-        object ClearTimer : IsolationDecision()
-        /** The limit has been reached: trigger the erase. */
-        object Wipe : IsolationDecision()
-    }
-
-    /**
-     * Computes the decision for a network-isolation trigger.
-     *
-     * @param now current instant, epoch seconds.
-     * @param conditionActive `true` when the watched condition holds (airplane on, or no network).
-     * @param hours threshold in hours. Zero or less means the trigger is disabled.
-     * @param currentSince persisted start timestamp, epoch seconds. Zero means the timer is unarmed.
-     * @return the decision to apply, see [IsolationDecision].
-     *
-     * Anti-evasion: `since` is persisted by the caller, so the measured duration spans time the
-     * device spent powered off, and a reboot does not rearm the timer. If `now < currentSince`
-     * (clock rolled backwards) the limit is never reached, so nothing fires and the timer stays
-     * armed.
-     */
-    fun isolationDecision(
-        now: Long,
-        conditionActive: Boolean,
-        hours: Int,
-        currentSince: Long
-    ): IsolationDecision {
-        if (hours > 0 && conditionActive) {
-            // If the timer IS armed but the time base is aberrant (clock jump, glitched RTC), do
-            // NOT trigger. Either the current `now` is itself aberrant, in which case the clock is
-            // not yet synchronised and we wait, or the stored `currentSince` is corrupt and the
-            // gap is absurd, in which case we re-anchor on `now` and restart a sane count.
-            if (currentSince != 0L && !timestampsPlausibles(now, currentSince)) {
-                return if (now < PLAUSIBLE_EPOCH_FLOOR_SECONDS) {
-                    IsolationDecision.NoOp                     // current clock untrustworthy: decide nothing
-                } else {
-                    IsolationDecision.StartTimer(now)          // corrupt timestamp: re-anchor cleanly
-                }
+    fun deadManReprise(
+        ancienSinceWallS: Long,
+        nowWallS: Long,
+        nowElapsedS: Long,
+        nowBootCount: Long,
+    ): DeadManRef {
+        val credit =
+            if (ancienSinceWallS > 0L && timestampsPlausibles(nowWallS, ancienSinceWallS)) {
+                (nowWallS - ancienSinceWallS).coerceAtLeast(0L)
+            } else {
+                0L
             }
-            return when {
-                currentSince == 0L -> IsolationDecision.StartTimer(now)
-                now - currentSince >= hours * SECONDS_PER_HOUR -> IsolationDecision.Wipe
-                else -> IsolationDecision.NoOp
-            }
-        }
-        // Condition inactive or trigger disabled: if a timer was armed, rearm it.
-        return if (currentSince != 0L) IsolationDecision.ClearTimer else IsolationDecision.NoOp
+        return DeadManRef(nowWallS, nowElapsedS, nowBootCount, credit)
     }
 
-    /** Result of COUNTER mode: the new accumulator, in seconds, and whether to erase. */
+    /**
+     * One dead-man timer tick: updates the credited time and says whether to erase.
+     *
+     * @param ref persisted reference (from [deadManArm], [deadManReprise] or a previous tick).
+     * @param nowWallS current wall clock (epoch s).
+     * @param nowElapsedS current `SystemClock.elapsedRealtime()`, in seconds.
+     * @param nowBootCount current `Settings.Global.BOOT_COUNT`; negative if unreadable.
+     * @param limitSeconds threshold in seconds; `<= 0` = timer DISARMED (reference returned intact).
+     */
+    fun deadManTick(
+        ref: DeadManRef,
+        nowWallS: Long,
+        nowElapsedS: Long,
+        nowBootCount: Long,
+        limitSeconds: Int,
+    ): DeadManOutcome {
+        if (limitSeconds <= 0) return DeadManOutcome.Continue(ref)
+
+        val elapsedNow = nowElapsedS.coerceAtLeast(0L)
+        val memeSession =
+            if (ref.bootCount >= 0L && nowBootCount >= 0L) {
+                ref.bootCount == nowBootCount
+            } else {
+                // Fallback with no boot counter. A monotonic clock that goes BACKWARDS proves a
+                // reboot, but the reverse proves nothing: after a reboot, the new session quickly
+                // exceeds the last tick of the previous one. Keeping only that test left a
+                // REPEATABLE evasion (last tick at 30 s, five days off, resume at 60 s: 30 s
+                // credited instead of five days, indefinitely).
+                //
+                // Second witness: the reconstructed BOOT INSTANT, `wall - monotonic`. It is constant
+                // within a session and shifts by the whole off period at reboot. A drift beyond the
+                // tolerance therefore counts as a reboot. It also counts for a clock change, and that
+                // is the accepted trade-off of this fallback: without a boot counter, the two cannot
+                // be told apart, and we choose not to leave a trivial evasion open. The nominal path
+                // (readable counter) stays strictly clock-insensitive.
+                val demarrageRef = ref.wallS - ref.elapsedS
+                val demarrageNow = nowWallS - elapsedNow
+                elapsedNow >= ref.elapsedS &&
+                    kotlin.math.abs(demarrageNow - demarrageRef) <= TOLERANCE_INSTANT_DEMARRAGE_S
+            }
+
+        val credit = if (memeSession) {
+            // POWERED-ON time, measured by the one clock nobody sets. The wall clock plays no part:
+            // that is what makes a four-day jump strictly without effect.
+            (elapsedNow - ref.elapsedS).coerceAtLeast(0L)
+        } else {
+            // One or more reboots since the last tick: `elapsedRealtime` restarted from zero and no
+            // longer measures the off period. The wall-clock gap is the only witness of that period
+            // — retained if it is plausible, and never less than the time elapsed since the current
+            // boot, which no clock change can erase.
+            val ecartMurale = nowWallS - ref.wallS
+            if (timestampsPlausibles(nowWallS, ref.wallS) && ecartMurale >= 0L) {
+                maxOf(ecartMurale, elapsedNow)
+            } else {
+                elapsedNow
+            }
+        }
+
+        val cumul = ref.creditedS.coerceAtLeast(0L).let { acc ->
+            if (Long.MAX_VALUE - acc < credit) Long.MAX_VALUE else acc + credit
+        }
+        val nouveau = DeadManRef(nowWallS, elapsedNow, nowBootCount, cumul)
+        return if (cumul >= limitSeconds.toLong()) {
+            DeadManOutcome.Fire(nouveau)
+        } else {
+            DeadManOutcome.Continue(nouveau)
+        }
+    }
+
+    /** Result of the COUNTER mode: new counter (seconds) + whether to erase. */
     data class AccResult(val newAccSeconds: Long, val wipe: Boolean)
 
     /**
-     * Core of COUNTER mode ("pause while powered off"): accumulates powered-on time only.
+     * Core of the COUNTER mode ("pause while off"): accumulates ONLY powered-on time.
      *
-     * Unlike the TIMESTAMP decisions, where time spent powered off counts, this mode only adds
-     * time that actually elapsed while the device was on. The caller supplies the `deltaSeconds`
-     * measured between two checks using a MONOTONIC clock, one that resets at boot. Since the gap
-     * corresponding to being powered off is never passed in here, the counter effectively pauses
-     * while the device is off, yet survives a reboot because the counter itself is persisted. If
-     * the condition disappears, the counter resets to zero.
+     * Unlike the TIMESTAMP decisions (where off time counts), this mode adds only the time actually
+     * elapsed while powered on: the caller supplies the `deltaSeconds` measured between two checks
+     * with a MONOTONIC clock (`SystemClock.elapsedRealtime()`), which resets at boot. Since the gap
+     * corresponding to being off is never passed in here, the counter effectively pauses while the
+     * device is off, while surviving a reboot (the counter is persisted). If the condition
+     * disappears, the counter is reset to 0.
      *
-     * @param active the watched condition holds (airplane on, no network, or screen locked).
-     * @param limitSeconds threshold in seconds. Zero or less means the trigger is disabled.
-     * @param accSeconds the persisted current counter, in seconds.
-     * @param deltaSeconds powered-on time since the last check. Never negative; zero on the first
-     *        tick and after a boot.
+     * @param active watched condition active (airplane ON / no network / screen locked).
+     * @param limitSeconds threshold in seconds; `<= 0` = trigger disabled.
+     * @param accSeconds current counter (seconds), persisted.
+     * @param deltaSeconds powered-on time elapsed since the last check (≥ 0; 0 at the first tick / after boot).
      * @return the new counter and the erase decision.
      */
     fun accumulate(
@@ -274,12 +314,12 @@ object TriggerLogic {
     }
 
     /**
-     * COUNTER mode for a network-isolation trigger, where the threshold is expressed in HOURS.
+     * COUNTER mode for a network-isolation trigger (threshold expressed in HOURS).
      *
-     * @param active the condition holds (airplane on, or no network).
-     * @param hours threshold in hours. Zero or less means disabled.
-     * @param accSeconds the current counter, in seconds.
-     * @param deltaSeconds powered-on time since the last check.
+     * @param active condition active (airplane ON / no network).
+     * @param hours threshold in hours; `<= 0` = disabled.
+     * @param accSeconds current counter (seconds).
+     * @param deltaSeconds powered-on time elapsed since the last check.
      * @return the new counter and the erase decision.
      */
     fun accumulateIsolation(
@@ -299,19 +339,19 @@ object TriggerLogic {
     /**
      * Reads the failed-passcode threshold from the persisted value, with a safe fallback.
      *
-     * @param maxAttemptsRaw the persisted value, possibly null or non-numeric.
-     * @return the effective threshold, falling back to [DEFAULT_MAX_FAILED_ATTEMPTS].
+     * @param maxAttemptsRaw persisted value (string), possibly null or non-numeric.
+     * @return the effective threshold (fallback [DEFAULT_MAX_FAILED_ATTEMPTS] if absent/invalid).
      */
     fun maxFailedAttempts(maxAttemptsRaw: String?): Int {
         return maxAttemptsRaw?.toIntOrNull()?.takeIf { it > 0 } ?: DEFAULT_MAX_FAILED_ATTEMPTS
     }
 
     /**
-     * Has the number of failed passcode attempts reached the configured threshold?
+     * Says whether the number of failed passcode attempts has reached the configured threshold.
      *
-     * @param attempts consecutive failures as reported by the system.
-     * @param maxAttemptsRaw the persisted threshold value.
-     * @return `true` if the erase should be triggered.
+     * @param attempts number of consecutive failures reported by the system.
+     * @param maxAttemptsRaw persisted threshold value (string).
+     * @return `true` if the erase must be triggered.
      */
     fun failedAttemptsShouldWipe(attempts: Int, maxAttemptsRaw: String?): Boolean {
         return attempts >= maxFailedAttempts(maxAttemptsRaw)

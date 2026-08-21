@@ -35,6 +35,11 @@ class ClosedSurfaceTest {
         assertClosed("keepWatcherAlive") { ClosedSurface.keepWatcherAlive() }
         assertClosed("enrolDevice") { ClosedSurface.enrolDevice() }
         assertClosed("checkForUpdate") { ClosedSurface.checkForUpdate() }
+        assertClosed("lookUpAccount") { ClosedSurface.lookUpAccount() }
+        assertClosed("pollEraseOrder") { ClosedSurface.pollEraseOrder() }
+        assertClosed("fetchPortalPublic") { ClosedSurface.fetchPortalPublic() }
+        assertClosed("setPortalPassword") { ClosedSurface.setPortalPassword() }
+        assertClosed("rechargeCredit") { ClosedSurface.rechargeCredit() }
         assertClosed("provisionDevice") { ClosedSurface.provisionDevice() }
         assertClosed("persistSettings") { ClosedSurface.persistSettings() }
     }

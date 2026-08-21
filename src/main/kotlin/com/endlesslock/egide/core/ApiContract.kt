@@ -9,8 +9,8 @@ import org.json.JSONObject
  * ----------------------------------------------------------------------------
  * ROLE
  *   THE SINGLE SOURCE OF TRUTH for the contract between the application and its
- *   server infrastructure: enrolment and software updates, both over Tor, on a
- *   shared onion service. There is no clearnet HTTPS path; it was removed.
+ *   server: enrolment and software updates, both over Tor, on a shared onion
+ *   service. There is no clearnet HTTPS path; it was removed.
  *
  *   Everything that defines "how the app talks to the server" lives here:
  *   protocol number, headers, endpoint paths, JSON field NAMES and the transfer
@@ -29,16 +29,19 @@ import org.json.JSONObject
  *     mixed versions workable.
  *
  * DELIBERATELY OUT OF SCOPE HERE
- *   - The remote-erase channel. Its semantics are "a success response with a
- *     body means erase", with no application-layer protocol on top: the
- *     endpoint is a bare responder, authenticated by the onion address itself.
- *     This contract does not apply to it, and its behaviour is frozen.
+ *   - The remote-erase channel. Its semantics are "a non-empty response means
+ *     erase", with no application-layer protocol on top: the endpoint is a bare
+ *     responder, authenticated by the onion address itself. This contract does
+ *     not apply to it, and its behaviour is frozen. It is still an outbound
+ *     network operation, and it is declared as one in `ClosedSurface.kt`.
  *   - The SMS channel, which is not HTTP at all.
+ *   - The licensing/recharge portal, a SEPARATE onion service with its own
+ *     contract in `PortailContract.kt`.
  * ============================================================================
  */
 
 /**
- * The centralised API contract: a stateless singleton.
+ * The centralised API contract for enrolment and updates: a stateless singleton.
  */
 object ApiContract {
 
@@ -66,8 +69,8 @@ object ApiContract {
     const val HEADER_AUTHORIZATION = "Authorization"
 
     // =================== ENDPOINT PATHS ===================
-    // All RELATIVE: they are prefixed with the base URL of the shared onion service. Enrolment now
-    // goes through that SAME hidden service as the update channel; there is no clearnet path left.
+    // All RELATIVE: they are prefixed with the base URL of the shared onion service. Enrolment goes
+    // through that SAME hidden service as the update channel; there is no clearnet path left.
 
     /** Enrolment: registers the (device id, public key) pair. POST, over Tor. */
     const val PATH_ENROLL = "/enroll"
@@ -88,16 +91,16 @@ object ApiContract {
     const val PATH_DOWNLOAD = "/download"
 
     /**
-     * Update: add entitlements to an ALREADY ENROLLED device. POST, Bearer JWT required.
+     * Account lookup for an ALREADY ENROLLED device. POST, Bearer JWT required.
      *
-     * This is NOT a re-enrolment. The device identity (`device_id`, public key, Keystore key)
-     * is never touched: the refusal to rotate an identity key stands. The device hands over a
-     * fresh single-use token and the server ADDS whatever that token grants.
-     *
-     * A token only ever ADDS. It never removes nor replaces an entitlement: otherwise anyone
-     * handing a key to a device holder could downgrade them. Removal is an operator action.
+     * This is NOT a re-enrolment: the device identity (`device_id`, public key, Keystore key) is
+     * never touched. It returns the device's account identifier ([KEY_DEVICE_UID], the non-secret
+     * web-login handle) and a short-lived [KEY_BOOTSTRAP_TOKEN]. The optional [KEY_ESID] in the
+     * body lets the server compute the reset-proof account identifier for a device enrolled before
+     * the account system existed; a missing account identifier with no `esid` supplied is answered
+     * with [ERREUR_DEVICE_UID_ABSENT], and the app retries with its `esid`.
      */
-    const val PATH_REDEEM = "/api/redeem"
+    const val PATH_ACCOUNT = "/api/account"
 
     // =================== QUERY PARAMETERS ===================
 
@@ -118,20 +121,25 @@ object ApiContract {
     // =================== JSON KEYS (request and response bodies) ===================
     // Centralised so that app and server share an identical schema, with no magic strings.
 
-    /** Device identifier, shared by enrolment and update authentication. */
+    /**
+     * Device identifier (the system Android ID), shared by enrolment and update authentication.
+     *
+     * It is a STABLE per-device value. It is not personal data and says nothing about the contents
+     * of the device, but it is a linking identifier: the server can tell that two requests carrying
+     * the same value came from the same device. That is stated plainly here rather than glossed as
+     * "opaque".
+     */
     const val KEY_DEVICE_ID = "device_id"
 
     /** Device public key, X.509 SubjectPublicKeyInfo, Base64. Enrolment. */
     const val KEY_PUBLIC_KEY = "public_key"
 
-    /** Single-use enrolment token, burnt in at build time or entered by the customer. Enrolment. */
-    const val KEY_ENROLL_TOKEN = "enroll_token"
-
     /**
      * Chain of **hardware attestation** certificates for the key, each certificate Base64-encoded
-     * DER. OPTIONAL. It lets the server verify that the key really is backed by the secure
-     * hardware of a genuine device, and that the attestation challenge equals the token that was
-     * issued. Enrolment.
+     * DER. OPTIONAL. It lets the server verify that the key really is backed by the secure hardware
+     * (StrongBox/TEE) of a genuine device, and that the attestation challenge equals the [KEY_ESID].
+     * Since 2026-08-17 this attestation, together with the `esid`, is what authorises an enrolment:
+     * there is no enrolment token any more. Enrolment.
      */
     const val KEY_ATTESTATION_CHAIN = "attestation_chain"
 
@@ -153,17 +161,75 @@ object ApiContract {
     /** Boolean: is an update needed? Update. */
     const val KEY_UPDATE_NEEDED = "update_needed"
 
-    /** Response key: the device's COMPLETE set of entitlements after the call, not a delta. */
+    /** Response key: the device's COMPLETE set of entitlements, not a delta. Response to `/version`. */
     const val KEY_ENTITLEMENTS = "entitlements"
 
     /**
-     * Response key: the release channel the server resolved for this device.
+     * Response key: the release channel the server resolved for this device. Present on `/version`.
      *
-     * Present on both `/version` and `/api/redeem`. It is the only way a device learns that an
-     * entitlement was REVOKED server-side. Without it, a downgraded device would keep showing
-     * itself as a tester while receiving stable builds.
+     * It is the only way a device learns that an entitlement was REVOKED server-side. Without it, a
+     * downgraded device would keep showing itself as a tester while receiving stable builds.
      */
     const val KEY_CHANNEL = "channel"
+
+    // =================== PREPAID CREDIT (licensing) ===================
+    // OPTIONAL fields at PROTOCOL_VERSION = 1 (no bump). The server defines these keys first; the
+    // app MIRRORS them here, to the byte. ⚠️ UNITS ARE NORMATIVE AND FROZEN: a seconds/milliseconds
+    // mismatch would break the credit countdown, hence the premium gate.
+    //
+    // The server OMITS an absent credit key rather than sending `null` or `0`: an absent key means
+    // "no verdict" = UNKNOWN (the app fails OPEN, it does not lock you out); a `seconds_remaining`
+    // that is PRESENT and <= 0 means EXPLICITLY suspended. Parsing MUST therefore tell absent from
+    // present-and-zero (see [LicenceDecision]).
+
+    /** Remaining credit, in SECONDS (integer). Authenticated response to `/version`. Absent = UNKNOWN. */
+    const val KEY_SECONDS_REMAINING = "seconds_remaining"
+
+    /** Instant the credit expires, epoch SECONDS UTC (integer). Response to `/version`. */
+    const val KEY_ACTIVE_UNTIL = "active_until"
+
+    /**
+     * SERVER timestamp of the check-in, epoch **MILLISECONDS** UTC (integer). ⚠️ ms, not s.
+     *
+     * This is the TIME ANCHOR the app persists to count the credit down against a monotonic clock
+     * (elapsed real time), never against the wall clock a thief can set back. It is returned as soon
+     * as a `device_uid` is known, even with no credit line: the anchor depends on no account.
+     */
+    const val KEY_SERVER_TIME = "server_time"
+
+    /** Lifetime licence (BOOLEAN). App-facing plan name: `unlimited`. Response to `/version`. */
+    const val KEY_UNLIMITED = "unlimited"
+
+    /**
+     * Account identifier, NOT secret (it doubles as the web-login handle). Hex string (HMAC-SHA256,
+     * 64 characters). Response to `/version` AND `/api/account`.
+     *
+     * It is a linking identifier: it ties this device's version checks, its portal password and its
+     * recharges to the same device. It is derived from the device, carries nothing personal, and is
+     * declared here for exactly that reason.
+     */
+    const val KEY_DEVICE_UID = "device_uid"
+
+    /**
+     * ESID (enrolment-specific id) attached by the app to `POST /api/account` to BACKFILL a device
+     * from the EXISTING fleet (enrolled before the account system, `device_uid` still null on the
+     * server). Also the enrolment attestation challenge. The name is fixed by the contract.
+     */
+    const val KEY_ESID = "esid"
+
+    /**
+     * Proof of DEVICE POSSESSION, single-use, short TTL, bound to the `device_uid`. Returned by
+     * `/api/account` (the app has already proved its StrongBox key to obtain the JWT). It is handed
+     * to the portal on the first password set (see `PortailContract`); it is never sent back to the
+     * enrolment/update server by the app.
+     */
+    const val KEY_BOOTSTRAP_TOKEN = "bootstrap_token"
+
+    /** 409 body on `/api/account`: `device_uid` is null and no `esid` was supplied; the app must resend with its ESID. */
+    const val ERREUR_DEVICE_UID_ABSENT = "device_uid_absent"
+
+    /** Key of the server's normalised error body (`{erreur: "<code>"}`). */
+    const val KEY_ERREUR = "erreur"
 
     // =================== MEDIA TYPES ===================
 
@@ -181,32 +247,39 @@ object ApiContract {
     /**
      * Body of the enrolment request: `POST` over **Tor** to [PATH_ENROLL] on the shared onion service.
      *
-     * Note what this body does NOT contain: no phone number, no contacts, no location, no
-     * identifier of the person, nothing about the contents of the device. It carries a token, an
-     * opaque device identifier, a public key, and optionally the hardware attestation chain for
-     * that key. That is the whole of what the device sends when it registers.
+     * Note what this body does NOT contain: no phone number, no contacts, no location, nothing
+     * about the person, nothing about the contents of the device. It carries an opaque-to-the-world
+     * but stable device identifier, a public key, and optionally the hardware attestation chain and
+     * the `esid`. There is NO enrolment token any more: since 2026-08-17 the registration is
+     * authorised by the hardware attestation plus the `esid`, which the server checks against the
+     * Google root, StrongBox/TEE, and the attestation challenge.
      *
-     * @property enrollToken single-use token authorising the registration, entered or scanned by
-     *           the customer, falling back to the one burnt in at build time.
      * @property deviceId    device identifier, the SAME one used by the update channel.
      * @property publicKey   EC P-256 public key, X.509 SPKI, Base64. Not sensitive.
      */
     data class EnrollRequest(
-        val enrollToken: String,
         val deviceId: String,
         val publicKey: String,
-        val attestationChain: List<String>? = null
+        val attestationChain: List<String>? = null,
+        /**
+         * ESID, OPTIONAL. Attached at provisioning so the server can compute the reset-proof
+         * `device_uid` at enrolment and check the attestation challenge. Absent (null/blank) → not
+         * included: the server falls back (device_uid derived later, or backfilled via /api/account).
+         */
+        val esid: String? = null
     ) {
         /**
          * Serialises to JSON conforming to the contract, using the centralised keys above. The
-         * attestation chain is included only when present, since the field is optional.
+         * optional fields are included only when present (attestation chain, esid).
          */
         fun toJson(): String = JSONObject().apply {
-            put(KEY_ENROLL_TOKEN, enrollToken)
             put(KEY_DEVICE_ID, deviceId)
             put(KEY_PUBLIC_KEY, publicKey)
             if (!attestationChain.isNullOrEmpty()) {
                 put(KEY_ATTESTATION_CHAIN, JSONArray(attestationChain))
+            }
+            if (!esid.isNullOrEmpty()) {
+                put(KEY_ESID, esid)
             }
         }.toString()
     }
@@ -228,28 +301,6 @@ object ApiContract {
             put(KEY_DEVICE_ID, deviceId)
             put(KEY_NONCE, nonce)
             put(KEY_SIGNATURE, signature)
-        }.toString()
-    }
-
-    /**
-     * Body of the entitlement request: `POST` over Tor to [PATH_REDEEM], on a device that is
-     * ALREADY registered.
-     *
-     * The token, and nothing else. The device is identified by the `sub` claim of its bearer
-     * token, which the server itself signed.
-     *
-     * ⚠️ **Never add a device identifier to this body.** Doing so would let a caller name a
-     * device OTHER than itself, and hand out entitlements it has no claim to. The absence of that
-     * field is the safeguard, so it is documented here rather than left to be rediscovered.
-     *
-     * @property enrollToken single-use token carrying the entitlements to add.
-     */
-    data class RedeemRequest(
-        val enrollToken: String
-    ) {
-        /** Serialises to JSON conforming to the contract. */
-        fun toJson(): String = JSONObject().apply {
-            put(KEY_ENROLL_TOKEN, enrollToken)
         }.toString()
     }
 }

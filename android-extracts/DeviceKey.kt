@@ -118,7 +118,8 @@ object DeviceKey {
      * A key created this way produces a **certificate chain** (see [getAttestationChainBase64])
      * signed up to Google's attestation root, proving that the key really is backed by the secure
      * hardware of a genuine device, and embedding the supplied `challenge` as a replay anchor: the
-     * server checks that the challenge equals the enrolment token it issued.
+     * server checks that the challenge equals the `esid` (the reset-proof anchor). There is no
+     * enrolment token any more.
      *
      * The challenge can only be set when the key is CREATED, so this method **deletes** the
      * existing key and regenerates one. The public key changes and must be registered again. It is

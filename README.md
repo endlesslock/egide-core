@@ -25,9 +25,16 @@ The triggers are:
 
 **Some of these are armed by default, and you should know which.** At setup, the airplane-mode,
 no-network and prolonged-lock timers are armed at **72 hours**, and the failed-attempt threshold at
-**5**. The remote and SMS triggers do nothing until the owner configures a secret. The setup screen
+**10**. The remote and SMS triggers do nothing until the owner configures a secret. The setup screen
 states the 72-hour defaults explicitly before handing over, and every threshold can be changed or
 switched off afterwards.
+
+**Some triggers are free, some are paid, and here is the split.** The offline safety net — a
+prolonged-lock erase, and the failed-passcode and tamper defences — is **free for life and never
+gated**, so a lost or seized phone always ends up protecting itself even with no subscription. The
+**remote and fast** triggers — a remote onion order, an SMS command, the dead-man timer, and the
+network-isolation timer — are the **paid** tier. Which trigger falls on which side is not a marketing
+line you have to trust: it is pinned, source and test, in `WipeSource.kt` and `WipeSourceTest.kt`.
 
 We arm them because a device that is stolen on day one, from an owner who never opened the settings,
 is the case the product exists for. You may disagree with that choice. You should at least not be
@@ -51,8 +58,10 @@ The gap that leaves is filled by `ClosedSurface.kt`, which declares **every** op
 application can perform on a device, with what each one touches and what each one sends, and
 implements none of them. You get the full list of what this software can do to a phone; you do not
 get the recipe for each step. In particular, that file is where you can check the claim that matters
-most: there are exactly **two** outbound network operations in the whole application, and neither
-carries anything about you or the contents of your device.
+most: **every** outbound network operation is listed, across the three onion services the app talks
+to, and none of them carries anything about **you as a person** or the **contents of your device**.
+What some of them do carry is an identity for the device or its account — spelled out, not glossed
+as "opaque", in the section *What the device sends* below.
 
 That is a real limitation and it cuts both ways. A reader of this repository can verify the rules,
 and cannot verify that the binary they were given contains exactly these rules. See the honest
@@ -74,7 +83,11 @@ files decide, they never act.
 | `OtaLimits.kt` | Hard ceilings on update size and session token lifetime. |
 | `SettingsValidation.kt` | The bounds on every setting that can lead to an erase. |
 | `TorParsing.kt` | Parsing of the Tor control port responses. |
-| `ApiContract.kt` | The complete contract with the server: every endpoint, every header, every JSON field. |
+| `ApiContract.kt` | The complete contract with the enrolment and update server: every endpoint, every header, every JSON field. |
+| `PortailContract.kt` | The complete contract with the licensing / recharge portal: its paths, its JSON fields, and what each call carries. |
+| `LicenceDecision.kt` | How the prepaid credit is read, and the premium gate: which triggers a paid tier unlocks, and why an unpaid device still protects itself. |
+| `WipeSource.kt` | The honest, complete list of which erase triggers are free for life and which are premium. |
+| `McaptchaSolver.kt` | The portal's proof-of-work captcha solver: it burns the device's own CPU and sends nothing about you. |
 | `ClosedSurface.kt` | The map of the closed part: every operation the application can perform on a device, what each one touches, and what each one sends. Declarations only, no implementations. |
 
 `android-extracts/` holds four files that depend on the Android framework and therefore cannot be
@@ -93,23 +106,53 @@ compiled here. They are published for reading, not for running:
 ./gradlew test
 ```
 
-205 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
-which a timer fires, the version code that is refused, the response that does not erase.
+232 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
+which a timer fires, the version code that is refused, the response that does not erase, the credit
+verdict that suspends the paid tier, the captcha proof-of-work that matches the server byte for byte.
 
 ## What the device sends
 
-A device makes exactly two kinds of outgoing request that carry a body, and here is all of it.
+Egide talks to **three** onion services, all over Tor, and every request it can make is listed
+here. **None of them carries anything about you as a person, or anything about the contents of your
+device.** What some of them do carry is an identity for the **device** or its **account** — and
+because that is a stable, linking identifier, we spell it out rather than call it "opaque".
 
-**Registration.** Four things and nothing else: the single-use enrolment token, an opaque device
-identifier, the device's public key, and optionally the hardware attestation chain for that key.
+**The enrolment and update server.**
 
-**Adding an entitlement**, on a device that is already registered: the token, and nothing else. Not
-even a device identifier — the device is named by the bearer token the server itself signed, so that
-no caller can name a device other than itself.
+- *Registration*, once at setup: a stable device identifier, the device's public key, and optionally
+  the hardware attestation chain for that key and an enrolment-specific id (`esid`). There is no
+  enrolment token any more; the registration is authorised by the hardware attestation. This body is
+  readable in `ApiContract.kt` and pinned by `ApiContractTest.kt`.
+- *Update authentication and download*, roughly once a day: the device identifier, a signature over
+  a server-supplied nonce, the installed version number, and the session token. A health probe and a
+  nonce request carry nothing but the device identifier.
+- *Account lookup*: the `esid`, under the session token, to obtain the account identifier
+  (`device_uid`) and a short-lived possession proof.
 
-No phone number, no contacts, no location, no identifier of the person, nothing about the contents
-of the device, in either case. Both bodies are readable in `ApiContract.kt` and pinned by
-`ApiContractTest.kt`.
+**The eraser.** A single onion address the app polls on a recurring basis. It **sends nothing**; it
+only reads whether an erase order is waiting. This is the remote trigger. Failing to reach the
+address is the normal, quiet state.
+
+**The licensing / recharge portal.** A separate onion service the app uses to keep its prepaid
+credit. Its paths and fields are in `PortailContract.kt`; the request bodies are assembled by the
+closed client that performs the calls, so — unlike registration — they are described here rather than
+pinned by a published test.
+
+- *Tiers and captcha*, public GETs: send nothing. The captcha challenge is then solved on-device,
+  burning CPU (`McaptchaSolver.kt`); the proof of work is a computation, not a fingerprint.
+- *Set the web password*: the account identifier `device_uid`, the password **you** chose for your
+  web account, a solved proof-of-work token, and a one-time possession proof.
+- *Recharge and verify*: the account identifier `device_uid`, the tier, the payment rail (the app
+  hard-codes Monero and never opens a card or clearnet checkout URL), a solved proof-of-work token,
+  and then the payment reference to check it.
+
+So the **complete** list of what ever leaves the device is: a device identifier, an account
+identifier, a public key, an attestation chain, signatures over server nonces, version numbers,
+session tokens, a payment tier and reference, and the web password you set. The device identifier
+and the account identifier are **stable and linking** — the server can tell that two requests came
+from the same device, and the `device_uid` ties your update checks, your recharges and your password
+to that one device. That is the honest boundary. What **never** leaves: your name, your phone
+number, your contacts, your location, your messages, your files, or any list of what is installed.
 
 ## Two design choices that will look like bugs
 
@@ -166,7 +209,7 @@ run `adb shell dumpsys package <package>`.
 |---|---|
 | `INTERNET`, `ACCESS_NETWORK_STATE` | Reaching the onion services, and the network-availability check that feeds the no-network timer. |
 | `RECEIVE_SMS`, `READ_SMS` | The SMS erase command, both in real time and through the inbox poll that catches a command received while the phone was off. |
-| `CAMERA` | Scanning the enrolment token as a QR code. Nothing else uses it. |
+| `CAMERA` | Scanning the enrolment QR code at setup. Nothing else uses it. |
 | `BIND_DEVICE_ADMIN`, `MANAGE_PROFILE_AND_DEVICE_OWNERS` | Device owner status, without which none of the protections can act. |
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `WAKE_LOCK` | Keeping the watcher alive and able to run its checks. |
 | `RECEIVE_BOOT_COMPLETED` | Resuming the timers after a restart, so a reboot does not reset them. |

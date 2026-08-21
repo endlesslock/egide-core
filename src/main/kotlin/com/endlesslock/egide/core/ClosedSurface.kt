@@ -17,18 +17,22 @@ package com.endlesslock.egide.core
  * get the recipe for how each step is carried out. The first is what an honest user needs. The
  * second is what an attacker would need, and what a competitor would want.
  *
- * ## The one thing to check, if you check nothing else
+ * ## The thing to check, if you check nothing else
  *
- * Read every declaration below and look at the "sends" line of each. There are exactly **two**
- * outbound network operations in this entire application, both listed here, both over Tor: the
- * enrolment registration, whose complete body is pinned in [ApiContract] and its tests, and the
- * update check. Nothing else in Egide sends anything, anywhere. No telemetry, no crash reporting, no
- * analytics, no location, no contacts, no message contents, no file contents, no list of installed
- * applications.
+ * Read every declaration below and look at the "sends" line of each. The application talks to three
+ * onion services, all over Tor through the single HTTP configuration in
+ * `android-extracts/HttpFactory.kt`, and **every** outbound operation is listed here: the enrolment
+ * and update server (registration, whose complete body is pinned in [ApiContract] and its tests;
+ * the update check; the account lookup), the eraser (which the app polls but to which it sends
+ * nothing), and the licensing/recharge portal (whose paths and fields are in [PortailContract]).
  *
- * If Egide were a surveillance tool, there would have to be a third one. There is no third one, and
- * the single HTTP configuration in `android-extracts/HttpFactory.kt` is where you would see it if
- * there were.
+ * What none of them carries is anything about **you as a person**, or anything about the **contents
+ * of your device**: no telemetry, no crash reporting, no analytics, no location, no contacts, no
+ * message contents, no file contents, no list of installed applications. What some of them do carry
+ * is an identity for the **device** or its **account** — a device identifier, and the `device_uid`
+ * account handle — and because those are stable, linking identifiers, each declaration says so
+ * rather than glossing them as "opaque". The portal also carries the web password **you** chose.
+ * The `README` spells the full list out in prose; the declarations below are the exhaustive map.
  *
  * ## How to use this file
  *
@@ -129,15 +133,16 @@ object ClosedSurface {
     fun keepWatcherAlive(): Unit = closed()
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // The only two things that leave the device
+    // What leaves the device — the enrolment and update server
     // ─────────────────────────────────────────────────────────────────────────────
 
     /**
      * Registers the device with the enrolment server. Once, at setup.
      *
-     * - Sends, over Tor: exactly the body defined by [ApiContract.EnrollRequest], that is the
-     *   single-use token, an opaque device identifier, the device's public key, and optionally the
-     *   hardware attestation chain for that key. The complete field list is pinned by
+     * - Sends, over Tor: exactly the body defined by [ApiContract.EnrollRequest], that is a stable
+     *   device identifier, the device's public key, and optionally the hardware attestation chain
+     *   for that key and the `esid`. There is no enrolment token any more: the registration is
+     *   authorised by the hardware attestation. The complete field list is pinned by
      *   `ApiContractTest`, so this claim is checkable rather than asserted.
      * - Does not send: any personal identifier, phone number, contact, location, message, file, or
      *   anything describing what is on the device.
@@ -159,6 +164,70 @@ object ClosedSurface {
      * - Does not send: anything about the user or the contents of the device.
      */
     fun checkForUpdate(): Unit = closed()
+
+    /**
+     * Looks up the device's account. `POST /api/account`, over Tor, under the session token.
+     *
+     * - Sends: the `esid` (an enrolment-specific id), so the server can compute or return the
+     *   account identifier for this device.
+     * - Receives: the account identifier `device_uid` (the non-secret web-login handle) and a
+     *   short-lived possession proof.
+     * - Does not send: anything about the user or the contents of the device.
+     */
+    fun lookUpAccount(): Unit = closed()
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // What leaves the device — the eraser
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Polls the eraser onion service for a pending erase order. Recurring, over Tor.
+     *
+     * This is the remote trigger. The onion address is self-authenticating (reaching it proves you
+     * are talking to the holder of its key), so a non-empty response is treated as the order to
+     * erase; the decision that reads that response is published in [EraserResponseLogic].
+     *
+     * - Sends: **nothing**. The request carries no body and no identifier; it only reads whether an
+     *   order is waiting. Failing to reach the address is the normal, quiet state.
+     */
+    fun pollEraseOrder(): Unit = closed()
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // What leaves the device — the licensing / recharge portal
+    // ─────────────────────────────────────────────────────────────────────────────
+    // A SEPARATE onion service. Its paths and fields are published in [PortailContract]; the bodies
+    // are assembled by this closed client. The app authenticates to it with the non-secret account
+    // identifier `device_uid` alone (plus a solved proof-of-work token where the portal asks for one).
+
+    /**
+     * Fetches the recharge tiers (`GET /paliers`) and a captcha challenge (`GET /captcha`). Public GETs.
+     *
+     * - Sends: **nothing**. Neither carries the account identifier.
+     * - The captcha challenge is then solved on-device, burning CPU, by [McaptchaSolver]; the proof
+     *   of work leaves nothing about the device — it is a computation, not a fingerprint.
+     */
+    fun fetchPortalPublic(): Unit = closed()
+
+    /**
+     * Sets or changes the web-login password. `POST /compte/motdepasse`, over Tor.
+     *
+     * - Sends: the account identifier `device_uid`, the password **the owner chose** for their web
+     *   account, a solved proof-of-work token, and — on the first set — a one-time possession proof.
+     * - Does not send: anything about the person or the contents of the device. The password is the
+     *   owner's own choice for their web account, not a device secret, and no trigger secret is ever
+     *   sent here.
+     */
+    fun setPortalPassword(): Unit = closed()
+
+    /**
+     * Creates a recharge and checks its payment. `POST /recharge` then `POST /recharge/verifier`, over Tor.
+     *
+     * - Sends: the account identifier `device_uid`, the chosen tier, the payment rail (the app
+     *   hard-codes Monero and never opens a card/clearnet checkout URL), a solved proof-of-work
+     *   token, and then the payment reference to verify it.
+     * - Does not send: anything about the person or the contents of the device.
+     */
+    fun rechargeCredit(): Unit = closed()
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Setup
