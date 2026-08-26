@@ -46,8 +46,8 @@ class ApiContractTest {
     // ==================================================================
 
     @Test
-    fun `the protocol version is 1`() {
-        assertEquals(1, ApiContract.PROTOCOL_VERSION)
+    fun `the protocol version is 2`() {
+        assertEquals(2, ApiContract.PROTOCOL_VERSION)
     }
 
     // ==================================================================
@@ -511,9 +511,11 @@ class ApiContractTest {
     }
 
     @Test
-    fun `the protocol version stays at 1 despite the additions`() {
-        // Adding an optional header, a JSON key or a whole endpoint is backwards compatible:
-        // older clients ignore what they do not know. No bump, by design.
-        assertEquals(1, ApiContract.PROTOCOL_VERSION)
+    fun `the protocol version moved because a REQUIRED field was removed`() {
+        // The rule has not changed: adding an optional field, a response key or a whole endpoint is
+        // backwards compatible and moves nothing. Removing a field the server used to require is
+        // not, and that is what happened: the enrolment body no longer carries a device_id.
+        assertEquals(2, ApiContract.PROTOCOL_VERSION)
+        assertTrue("The version must never go backwards", ApiContract.PROTOCOL_VERSION > 1)
     }
 }

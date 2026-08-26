@@ -48,14 +48,18 @@ object ApiContract {
     // =================== PROTOCOL VERSION ===================
 
     /**
-     * Version of the application protocol between app and server. Incremented on EVERY contract
-     * change: a new field, a new endpoint, a changed meaning. Carried by [HEADER_PROTOCOL].
+     * Version of the application protocol between app and server. Incremented on EVERY breaking
+     * contract change. Carried by [HEADER_PROTOCOL].
      *
      * Evolution rule: backwards-compatible additions are OPTIONAL fields and need no bump; any
      * breaking change requires a bump, and the server keeps accepting the older version for as
      * long as it takes the fleet to update.
+     *
+     * Version 2 removed a field the server used to require: enrolment no longer carries a device
+     * identifier at all. The device is identified by its enrolment-specific id (`esid`) and by
+     * nothing else. That is a breaking change under the rule above, so the number moved.
      */
-    const val PROTOCOL_VERSION = 1
+    const val PROTOCOL_VERSION = 2
 
     // =================== HTTP HEADERS ===================
 
