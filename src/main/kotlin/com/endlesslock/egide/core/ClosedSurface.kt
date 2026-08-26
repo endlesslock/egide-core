@@ -22,16 +22,17 @@ package com.endlesslock.egide.core
  * Read every declaration below and look at the "sends" line of each. The application talks to three
  * onion services, all over Tor through the single HTTP configuration in
  * `android-extracts/HttpFactory.kt`, and **every** outbound operation is listed here: the enrolment
- * and update server (registration, whose complete body is pinned in [ApiContract] and its tests;
- * the update check; the account lookup), the eraser (which the app polls but to which it sends
- * nothing), and the licensing/recharge portal (whose paths and fields are in [PortailContract]).
+ * and update server (the enrolment challenge, then registration, whose complete body is pinned in
+ * [ApiContract] and its tests; the update check; the account lookup), the eraser (which the app
+ * polls but to which it sends nothing), and the licensing/recharge portal (whose paths and fields
+ * are in [PortailContract]).
  *
  * What none of them carries is anything about **you as a person**, or anything about the **contents
  * of your device**: no telemetry, no crash reporting, no analytics, no location, no contacts, no
  * message contents, no file contents, no list of installed applications. What some of them do carry
- * is an identity for the **device** or its **account** — a device identifier, and the `device_uid`
- * account handle — and because those are stable, linking identifiers, each declaration says so
- * rather than glossing them as "opaque". The portal also carries the web password **you** chose.
+ * is an identity for the **device** or its **account**: the enrolment-specific id, and the
+ * `device_uid` account handle. Because those are stable, linking identifiers, each declaration says
+ * so rather than glossing them as "opaque". The portal also carries the web password **you** chose.
  * The `README` spells the full list out in prose; the declarations below are the exhaustive map.
  *
  * ## How to use this file
@@ -137,15 +138,34 @@ object ClosedSurface {
     // ─────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Registers the device with the enrolment server. Once, at setup.
+     * Asks the enrolment server for the challenge that registration must answer. Once, at setup,
+     * immediately before [enrolDevice].
      *
-     * - Sends, over Tor: exactly the body defined by [ApiContract.EnrollRequest], that is a stable
-     *   device identifier, the device's public key, and optionally the hardware attestation chain
-     *   for that key and the `esid`. There is no enrolment token any more: the registration is
-     *   authorised by the hardware attestation. The complete field list is pinned by
-     *   `ApiContractTest`, so this claim is checkable rather than asserted.
+     * It exists because of a platform constraint worth stating plainly: a hardware attestation can
+     * only be bound to a challenge at the instant the key is created. A challenge that changed on
+     * every registration would force a new key, and so a new public key, every single time.
+     *
+     * - Sends, over Tor: exactly the body defined by [ApiContract.ChallengeRequest], that is the
+     *   enrolment-specific id and nothing else. It is pinned by `ApiContractTest`.
+     * - Receives: a short-lived random value.
      * - Does not send: any personal identifier, phone number, contact, location, message, file, or
      *   anything describing what is on the device.
+     */
+    fun requestEnrolmentChallenge(): Unit = closed()
+
+    /**
+     * Registers the device with the enrolment server. Once, at setup, right after
+     * [requestEnrolmentChallenge].
+     *
+     * - Sends, over Tor: exactly the body defined by [ApiContract.EnrollRequest], that is the
+     *   enrolment-specific id, the device's public key, and one proof that the challenge was
+     *   answered: either the hardware attestation chain of a freshly created key, or a signature
+     *   over the challenge with the key the device already holds. There is no enrolment token and
+     *   no fallback identifier: a device that cannot produce a usable enrolment-specific id is
+     *   refused, and nothing is registered. The complete field list is pinned by `ApiContractTest`,
+     *   so this claim is checkable rather than asserted.
+     * - Does not send: any device identifier, personal identifier, phone number, contact, location,
+     *   message, file, or anything describing what is on the device.
      */
     fun enrolDevice(): Unit = closed()
 
@@ -159,8 +179,8 @@ object ClosedSurface {
      * It does not stop **us**. This is the residual power described in the README, and it is the
      * honest reason to distrust any vendor-updated security product, including this one.
      *
-     * - Sends, over Tor: the device identifier, a signature over a server-supplied nonce, and the
-     *   currently installed version number.
+     * - Sends, over Tor: the account identifier (`device_uid`), a signature over a server-supplied
+     *   nonce, and the currently installed version number.
      * - Does not send: anything about the user or the contents of the device.
      */
     fun checkForUpdate(): Unit = closed()

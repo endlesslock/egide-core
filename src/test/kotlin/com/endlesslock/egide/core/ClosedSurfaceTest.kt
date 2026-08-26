@@ -33,6 +33,7 @@ class ClosedSurfaceTest {
         assertClosed("observeTriggerConditions") { ClosedSurface.observeTriggerConditions() }
         assertClosed("detectTampering") { ClosedSurface.detectTampering() }
         assertClosed("keepWatcherAlive") { ClosedSurface.keepWatcherAlive() }
+        assertClosed("requestEnrolmentChallenge") { ClosedSurface.requestEnrolmentChallenge() }
         assertClosed("enrolDevice") { ClosedSurface.enrolDevice() }
         assertClosed("checkForUpdate") { ClosedSurface.checkForUpdate() }
         assertClosed("lookUpAccount") { ClosedSurface.lookUpAccount() }
