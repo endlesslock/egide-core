@@ -13,9 +13,10 @@ authority to erase data and to resist being removed. A resident foreground servi
 trigger conditions; a set of pure decision functions, published here, turn observations into
 decisions; and a separate layer, not published, carries them out.
 
-**The enrolment and update server**, reachable only as a Tor onion service. It holds a table of
-device identifiers and public keys. It holds no secret belonging to any device, which is why a
-breach of it does not compromise a phone.
+**The enrolment and update server**, reachable only as a Tor onion service. It holds one row per
+phone, for the life of that phone: an account identifier derived one way from the enrolment-specific
+id, and a public key. It holds no secret belonging to any device, which is why a breach of its
+database does not compromise a phone, and it never stores the enrolment-specific id itself.
 
 **The remote erase endpoint**, one per phone, also an onion service. It does one thing: when the
 owner starts it, it answers, and the phone that polls it erases itself. The phone sends it nothing.
@@ -105,8 +106,9 @@ We would rather write that down here than let you find it out later.
 
 ## How to read the code, if you only have twenty minutes
 
-1. `ApiContract.kt`, the `EnrollRequest` class, then `PortailContract.kt`, and the *What the device
-   sends* section of the README, which lists every outbound request across the three onion services.
+1. `ApiContract.kt`, the `ChallengeRequest` and `EnrollRequest` classes, then `PortailContract.kt`,
+   and the *What the device sends* section of the README, which lists all fourteen outbound requests
+   across the three onion services.
    Check that no personal data appears anywhere in it.
 2. `HttpFactory.kt` in `android-extracts/`. That is the only outbound HTTP configuration; all three
    services go through it.

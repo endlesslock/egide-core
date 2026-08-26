@@ -34,16 +34,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **The enrolment-specific id is now the only identity a device has**, for enrolment and for the
+  prepaid account alike. The system Android ID has left the contract entirely: it is not sent at
+  enrolment, not sent anywhere else, and not stored on the server. What the server keeps is a
+  one-way derivation of the enrolment-specific id, one row per phone for the life of the phone.
+- **There is no fallback identity any more.** A device that cannot produce a usable
+  enrolment-specific id is refused, the refusal is final, and nothing is registered. The previous
+  behaviour was to fall back to an identifier that did not survive a factory reset, which quietly
+  produced accounts their owner could never get back to after a reformat.
+- **Enrolment answers a server challenge**, obtained from a new endpoint (`/enroll/challenge`),
+  by one of two proofs: the hardware attestation chain of a freshly created key, or a signature over
+  the challenge with the key the device already holds. Registration is authorised by that proof plus
+  the enrolment-specific id. There is still no enrolment token.
+- The published request count is now stated in the README and held to the code by
+  `EndpointDisclosureTest`: fourteen requests across three onion services. It used to be implicit,
+  which meant the prose could fall behind the contract without anything noticing.
+- `PROTOCOL_VERSION` moved from 1 to 2. A required field was removed from the enrolment body, which
+  is a breaking change under the rule the contract states.
 - The "What the device sends" accounting is now honest about scale: the application talks to **three**
   onion services (enrolment/update, eraser, portal), and every outbound operation is listed. The
   earlier claim of "exactly two outbound operations" was true of an older shape and is gone; nothing
   that leaves the device carries personal data or device contents, but the device and account
   identifiers (`device_id`, `device_uid`) are named plainly as the linking identifiers they are.
-- Enrolment is now authorised by hardware attestation plus an `esid`, not an enrolment token.
+- Enrolment used to be authorised by hardware attestation plus an `esid`, with the `esid` optional
+  and a fallback behind it. Both the option and the fallback are gone; see the entries above.
 - The default failed-passcode threshold documented and pinned as **10**.
 
 ### Removed
 
+- The device identifier from the enrolment body, and with it the last hardware identifier this
+  application ever sent. `DeviceIdentity.kt` still resolves one, and it is now used only on the
+  device, never transmitted.
 - The enrolment token and the `/api/redeem` entitlement path: superseded by the attestation-based
   enrolment and the `/api/account` lookup.
 - The wall-clock lock and network-isolation timer decisions (`lockDurationShouldWipe`,
