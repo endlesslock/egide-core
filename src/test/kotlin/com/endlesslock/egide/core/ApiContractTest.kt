@@ -158,6 +158,11 @@ class ApiContractTest {
     }
 
     @Test
+    fun `the challenge_signature key is challenge_signature`() {
+        assertEquals("challenge_signature", ApiContract.KEY_CHALLENGE_SIGNATURE)
+    }
+
+    @Test
     fun `the public_key key is public_key`() {
         assertEquals("public_key", ApiContract.KEY_PUBLIC_KEY)
     }
@@ -270,6 +275,7 @@ class ApiContractTest {
             ApiContract.KEY_PUBLIC_KEY,
             ApiContract.KEY_ATTESTATION_CHAIN,
             ApiContract.KEY_CHALLENGE,
+            ApiContract.KEY_CHALLENGE_SIGNATURE,
             ApiContract.KEY_NONCE,
             ApiContract.KEY_SIGNATURE,
             ApiContract.KEY_JWT,
@@ -296,21 +302,21 @@ class ApiContractTest {
 
     @Test
     fun `enroll toJson produces valid, parseable JSON`() {
-        val json = ApiContract.EnrollRequest("dev", "pub").toJson()
+        val json = ApiContract.EnrollRequest("esid-1", "pub").toJson()
         // Must not throw: this is a well-formed JSON object.
         val obj = JSONObject(json)
-        assertEquals("dev", obj.getString("device_id"))
+        assertEquals("esid-1", obj.getString("esid"))
     }
 
     @Test
     fun `enroll toJson carries the two mandatory fields with the right values`() {
         val obj = JSONObject(
             ApiContract.EnrollRequest(
-                deviceId = "device-42",
+                esid = "ESID-42",
                 publicKey = "PUBLIC_KEY_BASE64"
             ).toJson()
         )
-        assertEquals("device-42", obj.getString("device_id"))
+        assertEquals("ESID-42", obj.getString("esid"))
         assertEquals("PUBLIC_KEY_BASE64", obj.getString("public_key"))
     }
 
@@ -318,24 +324,58 @@ class ApiContractTest {
     fun `enroll toJson never carries an enrolment token`() {
         // There is no token any more; the body must not resurrect one.
         val obj = JSONObject(
-            ApiContract.EnrollRequest("d", "p", attestationChain = listOf("c"), esid = "e").toJson()
+            ApiContract.EnrollRequest("e", "p", attestationChain = listOf("c")).toJson()
         )
         assertFalse(obj.has("enroll_token"))
         assertFalse(obj.has("token"))
     }
 
     @Test
-    fun `enroll toJson with no optional field carries exactly the two mandatory keys`() {
-        val obj = JSONObject(ApiContract.EnrollRequest("d", "p").toJson())
+    fun `enroll toJson never carries a device identifier`() {
+        // THE point of the whole change: the system Android ID left the contract. It is not
+        // optional, not renamed, not moved to a header. It is gone, and this test is what keeps
+        // it gone.
+        val obj = JSONObject(
+            ApiContract.EnrollRequest("e", "p", attestationChain = listOf("c")).toJson()
+        )
+        assertFalse("A device identifier came back into the enrolment body", obj.has("device_id"))
+        assertFalse(obj.has("android_id"))
+        assertFalse(obj.has("device_uid"))
+    }
+
+    @Test
+    fun `enroll toJson with no proof carries exactly the two mandatory keys`() {
+        val obj = JSONObject(ApiContract.EnrollRequest("e", "p").toJson())
         assertFalse(obj.has("attestation_chain"))
-        assertFalse(obj.has("esid"))
-        assertEquals(setOf("device_id", "public_key"), keysOf(obj))
+        assertFalse(obj.has("challenge_signature"))
+        assertEquals(setOf("esid", "public_key"), keysOf(obj))
+    }
+
+    @Test
+    fun `enroll toJson on the attestation path carries exactly three keys`() {
+        // First path: no Keystore alias, so the key is created with the challenge sealed into it
+        // and the full chain travels.
+        val obj = JSONObject(
+            ApiContract.EnrollRequest("e", "p", attestationChain = listOf("leaf", "root")).toJson()
+        )
+        assertEquals(setOf("esid", "public_key", "attestation_chain"), keysOf(obj))
+    }
+
+    @Test
+    fun `enroll toJson on the possession path carries exactly three keys`() {
+        // Second path: the Keystore alias survived, so the key is unchanged and the device signs
+        // the challenge instead of re-attesting. Not a rotation.
+        val obj = JSONObject(
+            ApiContract.EnrollRequest("e", "p", challengeSignature = "SIG").toJson()
+        )
+        assertEquals(setOf("esid", "public_key", "challenge_signature"), keysOf(obj))
+        assertEquals("SIG", obj.getString("challenge_signature"))
     }
 
     @Test
     fun `enroll toJson with an EMPTY attestation list omits the key`() {
         val obj = JSONObject(
-            ApiContract.EnrollRequest("d", "p", attestationChain = emptyList()).toJson()
+            ApiContract.EnrollRequest("e", "p", attestationChain = emptyList()).toJson()
         )
         assertFalse(obj.has("attestation_chain"))
         assertEquals(2, obj.length())
@@ -344,7 +384,7 @@ class ApiContractTest {
     @Test
     fun `enroll toJson with a single attestation certificate exposes a correct JSON array`() {
         val obj = JSONObject(
-            ApiContract.EnrollRequest("d", "p", attestationChain = listOf("CERT_A")).toJson()
+            ApiContract.EnrollRequest("e", "p", attestationChain = listOf("CERT_A")).toJson()
         )
         assertTrue(obj.has("attestation_chain"))
         val arr = obj.getJSONArray("attestation_chain")
@@ -356,7 +396,7 @@ class ApiContractTest {
     fun `enroll toJson preserves both the content AND the order of the attestation chain`() {
         val chain = listOf("leaf", "intermediate", "root")
         val obj = JSONObject(
-            ApiContract.EnrollRequest("d", "p", attestationChain = chain).toJson()
+            ApiContract.EnrollRequest("e", "p", attestationChain = chain).toJson()
         )
         val arr: JSONArray = obj.getJSONArray("attestation_chain")
         assertEquals(3, arr.length())
@@ -367,47 +407,39 @@ class ApiContractTest {
     }
 
     @Test
-    fun `enroll toJson with a blank esid omits the esid key`() {
-        val obj = JSONObject(ApiContract.EnrollRequest("d", "p", esid = "").toJson())
-        assertFalse(obj.has("esid"))
+    fun `enroll toJson with a blank challenge signature omits the key`() {
+        val obj = JSONObject(ApiContract.EnrollRequest("e", "p", challengeSignature = "").toJson())
+        assertFalse(obj.has("challenge_signature"))
     }
 
     @Test
-    fun `enroll toJson with an esid carries it`() {
-        val obj = JSONObject(ApiContract.EnrollRequest("d", "p", esid = "ESID-99").toJson())
+    fun `enroll toJson always carries the esid, even when it is blank`() {
+        // The esid is MANDATORY now: it is never omitted the way an optional field is. A blank one
+        // travels and the server refuses it outright, which is the behaviour we want visible here
+        // rather than a body that quietly drops the key.
+        val obj = JSONObject(ApiContract.EnrollRequest("", "p").toJson())
         assertTrue(obj.has("esid"))
-        assertEquals("ESID-99", obj.getString("esid"))
-    }
-
-    @Test
-    fun `enroll toJson with attestation AND esid carries exactly four keys`() {
-        val obj = JSONObject(
-            ApiContract.EnrollRequest(
-                "d", "p", attestationChain = listOf("c1", "c2"), esid = "e"
-            ).toJson()
-        )
-        assertEquals(
-            setOf("device_id", "public_key", "attestation_chain", "esid"),
-            keysOf(obj)
-        )
+        assertEquals("", obj.getString("esid"))
     }
 
     @Test
     fun `enroll toJson introduces no unexpected key`() {
         val obj = JSONObject(
-            ApiContract.EnrollRequest("d", "p", attestationChain = listOf("c"), esid = "e").toJson()
+            ApiContract.EnrollRequest(
+                "e", "p", attestationChain = listOf("c"), challengeSignature = "s"
+            ).toJson()
         )
-        val allowed = setOf("device_id", "public_key", "attestation_chain", "esid")
+        val allowed = setOf("esid", "public_key", "attestation_chain", "challenge_signature")
         keysOf(obj).forEach { assertTrue("Unexpected key: $it", it in allowed) }
     }
 
     @Test
     fun `enroll toJson preserves special characters in the values`() {
         // Quotes, backslash, braces, newline, unicode: all must survive a round trip.
-        val specialDevice = "id-special-€\"\\{}"
+        val specialEsid = "esid-special-€\"\\{}"
         val specialPub = "+/=base64==e\n\t"
-        val obj = JSONObject(ApiContract.EnrollRequest(specialDevice, specialPub).toJson())
-        assertEquals(specialDevice, obj.getString("device_id"))
+        val obj = JSONObject(ApiContract.EnrollRequest(specialEsid, specialPub).toJson())
+        assertEquals(specialEsid, obj.getString("esid"))
         assertEquals(specialPub, obj.getString("public_key"))
     }
 
@@ -415,7 +447,7 @@ class ApiContractTest {
     fun `enroll toJson preserves special characters inside the attestation chain`() {
         val specialCert = "MIIB\"\\/\n+=="
         val obj = JSONObject(
-            ApiContract.EnrollRequest("d", "p", attestationChain = listOf(specialCert, "plain")).toJson()
+            ApiContract.EnrollRequest("e", "p", attestationChain = listOf(specialCert, "plain")).toJson()
         )
         val arr = obj.getJSONArray("attestation_chain")
         assertEquals(specialCert, arr.getString(0))
@@ -424,24 +456,27 @@ class ApiContractTest {
 
     @Test
     fun `enroll toJson accepts empty mandatory values without breaking`() {
-        // Empty strings are valid; only an absent or empty LIST, or a blank esid, triggers omission.
+        // Empty strings are valid on the wire; only an absent or empty LIST, or a blank challenge
+        // signature, triggers omission.
         val obj = JSONObject(ApiContract.EnrollRequest("", "").toJson())
-        assertEquals("", obj.getString("device_id"))
+        assertEquals("", obj.getString("esid"))
         assertEquals("", obj.getString("public_key"))
         assertFalse(obj.has("attestation_chain"))
-        assertFalse(obj.has("esid"))
+        assertFalse(obj.has("challenge_signature"))
     }
 
     @Test
     fun `enroll toJson really uses the contract key constants`() {
         // Guarantees the serialisation references the KEY_ constants, with no divergent literal.
         val obj = JSONObject(
-            ApiContract.EnrollRequest("d", "p", attestationChain = listOf("c"), esid = "e").toJson()
+            ApiContract.EnrollRequest(
+                "e", "p", attestationChain = listOf("c"), challengeSignature = "s"
+            ).toJson()
         )
-        assertTrue(obj.has(ApiContract.KEY_DEVICE_ID))
+        assertTrue(obj.has(ApiContract.KEY_ESID))
         assertTrue(obj.has(ApiContract.KEY_PUBLIC_KEY))
         assertTrue(obj.has(ApiContract.KEY_ATTESTATION_CHAIN))
-        assertTrue(obj.has(ApiContract.KEY_ESID))
+        assertTrue(obj.has(ApiContract.KEY_CHALLENGE_SIGNATURE))
     }
 
     @Test

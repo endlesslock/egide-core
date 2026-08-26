@@ -141,7 +141,13 @@ object ApiContract {
     // Centralised so that app and server share an identical schema, with no magic strings.
 
     /**
-     * Device identifier (the system Android ID), shared by enrolment and update authentication.
+     * Identifier of the device on the UPDATE path only: the [HEADER_DEVICE_ID] header and the body
+     * of [PATH_VERIFY]. The wire name has not changed; the VALUE it carries has. It used to be the
+     * system Android ID. It is now the account identifier [KEY_DEVICE_UID], which the device
+     * persists when it registers.
+     *
+     * The system Android ID no longer appears in ANY request this application makes. Enrolment does
+     * not carry it, and neither does anything else.
      *
      * It is a STABLE per-device value. It is not personal data and says nothing about the contents
      * of the device, but it is a linking identifier: the server can tell that two requests carrying
@@ -155,10 +161,13 @@ object ApiContract {
 
     /**
      * Chain of **hardware attestation** certificates for the key, each certificate Base64-encoded
-     * DER. OPTIONAL. It lets the server verify that the key really is backed by the secure hardware
-     * (StrongBox/TEE) of a genuine device, and that the attestation challenge equals the [KEY_ESID].
-     * Since 2026-08-17 this attestation, together with the `esid`, is what authorises an enrolment:
-     * there is no enrolment token any more. Enrolment.
+     * DER. Enrolment, FIRST proof path.
+     *
+     * It is sent when the device has no key yet, which is the case after a factory reset or on a
+     * first install: the key is created with [KEY_CHALLENGE] sealed into it, and the chain proves
+     * both that the key is backed by the secure hardware of a genuine device and that this exact
+     * challenge was answered. It is absent on the second proof path, where the key already exists
+     * and [KEY_CHALLENGE_SIGNATURE] is sent instead. Exactly one of the two travels.
      */
     const val KEY_ATTESTATION_CHAIN = "attestation_chain"
 
@@ -168,6 +177,18 @@ object ApiContract {
      * holds. Enrolment.
      */
     const val KEY_CHALLENGE = "challenge"
+
+    /**
+     * Signature over [KEY_CHALLENGE] with the key the device ALREADY holds. Enrolment, SECOND
+     * proof path.
+     *
+     * Keystore keys survive an application reinstall and a clearing of its data, so a device in
+     * that situation still owns its key and its public key has not changed. Re-creating the key
+     * just to seal a fresh challenge into it would change the public key for nothing, and the
+     * server would read that as a rotation. So the device signs the challenge instead, which proves
+     * possession without touching the key. ECDSA P-256, DER, Base64.
+     */
+    const val KEY_CHALLENGE_SIGNATURE = "challenge_signature"
 
     /** Single-use nonce supplied by the server. Update authentication. */
     const val KEY_NONCE = "nonce"
@@ -237,9 +258,16 @@ object ApiContract {
     const val KEY_DEVICE_UID = "device_uid"
 
     /**
-     * ESID (enrolment-specific id) attached by the app to `POST /api/account` to BACKFILL a device
-     * from the EXISTING fleet (enrolled before the account system, `device_uid` still null on the
-     * server). Also the enrolment attestation challenge. The name is fixed by the contract.
+     * ESID, the enrolment-specific id. The **only** identity of a device, for enrolment and for the
+     * account alike, and a REQUIRED field of the enrolment body.
+     *
+     * The platform guarantees the same value for the same device, the same organisation and the
+     * same application, and that value survives a factory reset. That is what makes prepaid credit
+     * survive a reformat, and it is also why a reformat can never buy a second free trial.
+     *
+     * There is no fallback. A device that cannot produce a usable one is refused, the refusal is
+     * final, and nothing is registered on the server. It is also sent to [PATH_ACCOUNT]. The name
+     * is fixed by the contract.
      */
     const val KEY_ESID = "esid"
 
@@ -290,41 +318,45 @@ object ApiContract {
     }
 
     /**
-     * Body of the enrolment request: `POST` over **Tor** to [PATH_ENROLL] on the shared onion service.
+     * Body of the enrolment request: `POST` over **Tor** to [PATH_ENROLL] on the shared onion
+     * service, answering the challenge obtained from [PATH_ENROLL_CHALLENGE].
      *
-     * Note what this body does NOT contain: no phone number, no contacts, no location, nothing
-     * about the person, nothing about the contents of the device. It carries an opaque-to-the-world
-     * but stable device identifier, a public key, and optionally the hardware attestation chain and
-     * the `esid`. There is NO enrolment token any more: since 2026-08-17 the registration is
-     * authorised by the hardware attestation plus the `esid`, which the server checks against the
-     * Google root, StrongBox/TEE, and the attestation challenge.
+     * Note what this body does NOT contain: no device identifier, no phone number, no contacts, no
+     * location, nothing about the person, nothing about the contents of the device. The system
+     * Android ID used to be here and is gone. What identifies the device is its enrolment-specific
+     * id, and nothing else.
      *
-     * @property deviceId    device identifier, the SAME one used by the update channel.
-     * @property publicKey   EC P-256 public key, X.509 SPKI, Base64. Not sensitive.
+     * Exactly one of the two proofs travels, and which one depends on whether the device still
+     * holds its key:
+     *  - no key held, that is a fresh install or a device just reformatted: the key is created with
+     *    the challenge sealed into it, and [attestationChain] carries the proof;
+     *  - key still held, that is the application reinstalled or its data cleared: the public key has
+     *    not changed, so re-creating it would look like a rotation for nothing. The device signs the
+     *    challenge instead and [challengeSignature] carries the proof.
+     *
+     * @property esid       the enrolment-specific id. REQUIRED; there is no fallback identifier.
+     * @property publicKey  EC P-256 public key, X.509 SPKI, Base64. Not sensitive.
      */
     data class EnrollRequest(
-        val deviceId: String,
+        val esid: String,
         val publicKey: String,
         val attestationChain: List<String>? = null,
-        /**
-         * ESID, OPTIONAL. Attached at provisioning so the server can compute the reset-proof
-         * `device_uid` at enrolment and check the attestation challenge. Absent (null/blank) → not
-         * included: the server falls back (device_uid derived later, or backfilled via /api/account).
-         */
-        val esid: String? = null
+        val challengeSignature: String? = null
     ) {
         /**
-         * Serialises to JSON conforming to the contract, using the centralised keys above. The
-         * optional fields are included only when present (attestation chain, esid).
+         * Serialises to JSON conforming to the contract, using the centralised keys above. The two
+         * mandatory fields are always written, blank included: the esid is not an optional field
+         * that disappears when empty, it is the identity, and an unusable one has to reach the
+         * server to be refused. Each proof field is written only when present.
          */
         fun toJson(): String = JSONObject().apply {
-            put(KEY_DEVICE_ID, deviceId)
+            put(KEY_ESID, esid)
             put(KEY_PUBLIC_KEY, publicKey)
             if (!attestationChain.isNullOrEmpty()) {
                 put(KEY_ATTESTATION_CHAIN, JSONArray(attestationChain))
             }
-            if (!esid.isNullOrEmpty()) {
-                put(KEY_ESID, esid)
+            if (!challengeSignature.isNullOrEmpty()) {
+                put(KEY_CHALLENGE_SIGNATURE, challengeSignature)
             }
         }.toString()
     }
