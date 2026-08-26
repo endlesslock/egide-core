@@ -106,28 +106,48 @@ compiled here. They are published for reading, not for running:
 ./gradlew test
 ```
 
-232 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
+242 tests, no network access, no device, no emulator. They pin the exact boundaries: the second at
 which a timer fires, the version code that is refused, the response that does not erase, the credit
 verdict that suspends the paid tier, the captcha proof-of-work that matches the server byte for byte.
 
 ## What the device sends
 
-Egide talks to **three** onion services, all over Tor, and every request it can make is listed
-here. **None of them carries anything about you as a person, or anything about the contents of your
-device.** What some of them do carry is an identity for the **device** or its **account** — and
-because that is a stable, linking identifier, we spell it out rather than call it "opaque".
+Egide talks to **three** onion services, all over Tor. Every request it can make is listed here,
+and there are **fourteen** requests in total: eight to the enrolment and update server, one to the
+eraser, five to the portal. **None of them carries anything about you as a person, or anything about
+the contents of your device.** What some of them do carry is an identity for the **device** or its
+**account**, and because that is a stable, linking identifier, we spell it out rather than call it
+"opaque".
 
 **The enrolment and update server.**
 
-- *Registration*, once at setup: a stable device identifier, the device's public key, and optionally
-  the hardware attestation chain for that key and an enrolment-specific id (`esid`). There is no
-  enrolment token any more; the registration is authorised by the hardware attestation. This body is
-  readable in `ApiContract.kt` and pinned by `ApiContractTest.kt`.
-- *Update authentication and download*, roughly once a day: the device identifier, a signature over
-  a server-supplied nonce, the installed version number, and the session token. A health probe and a
-  nonce request carry nothing but the device identifier.
+- *Enrolment challenge*, once at setup, immediately before registration: the enrolment-specific id
+  (`esid`) and nothing else. The reply is a short-lived random value the device must then prove it
+  received. This step exists because a hardware attestation can only be bound to a challenge at the
+  instant the key is created, so the challenge has to be asked for first.
+- *Registration*, once at setup: the enrolment-specific id, the device's public key, and one proof
+  that the challenge was answered, which is either the hardware attestation chain of a freshly
+  created key or a signature over the challenge with the key the device already holds. There is no
+  enrolment token, and no device identifier: the system Android ID used to travel here and no longer
+  does. The enrolment-specific id is **required**, there is no fallback, and a device that cannot
+  produce a usable one is refused outright with nothing registered. This body is readable in
+  `ApiContract.kt` and pinned by `ApiContractTest.kt`.
+- *Update authentication and download*, roughly once a day: the account identifier (`device_uid`),
+  a signature over a server-supplied nonce, the installed version number, and the session token. A
+  health probe carries nothing at all, and a nonce request carries nothing but that same account
+  identifier.
 - *Account lookup*: the `esid`, under the session token, to obtain the account identifier
   (`device_uid`) and a short-lived possession proof.
+
+**One line per phone, for the life of the phone, and you should know what that buys and what it
+costs.** The enrolment-specific id is provided by Android for exactly this purpose: the same value
+for the same device, the same organisation and the same application, and it survives a factory
+reset. The server never stores it; it stores a one-way derivation of it. What that buys you is that
+reformatting your phone returns you to your own account with your remaining credit intact, and it is
+also why a reformat cannot buy a second free trial. What it costs you is honesty about the strength
+of the link: an identifier that survives a factory reset is a **stronger** linking identifier than
+the one it replaced, not a weaker one. We would rather write that down here than let you find it out
+later.
 
 **The eraser.** A single onion address the app polls on a recurring basis. It **sends nothing**; it
 only reads whether an erase order is waiting. This is the remote trigger. Failing to reach the
@@ -135,7 +155,7 @@ address is the normal, quiet state.
 
 **The licensing / recharge portal.** A separate onion service the app uses to keep its prepaid
 credit. Its paths and fields are in `PortailContract.kt`; the request bodies are assembled by the
-closed client that performs the calls, so — unlike registration — they are described here rather than
+closed client that performs the calls, so, unlike registration, they are described here rather than
 pinned by a published test.
 
 - *Tiers and captcha*, public GETs: send nothing. The captcha challenge is then solved on-device,
@@ -146,13 +166,14 @@ pinned by a published test.
   hard-codes Monero and never opens a card or clearnet checkout URL), a solved proof-of-work token,
   and then the payment reference to check it.
 
-So the **complete** list of what ever leaves the device is: a device identifier, an account
-identifier, a public key, an attestation chain, signatures over server nonces, version numbers,
-session tokens, a payment tier and reference, and the web password you set. The device identifier
-and the account identifier are **stable and linking** — the server can tell that two requests came
-from the same device, and the `device_uid` ties your update checks, your recharges and your password
-to that one device. That is the honest boundary. What **never** leaves: your name, your phone
-number, your contacts, your location, your messages, your files, or any list of what is installed.
+So the **complete** list of what ever leaves the device is: an enrolment-specific id, an account
+identifier, a public key, an attestation chain, signatures over a server challenge and over server
+nonces, version numbers, session tokens, a payment tier and reference, and the web password you set.
+The enrolment-specific id and the account identifier are **stable and linking**: the server can tell
+that two requests came from the same device, and the `device_uid` ties your update checks, your
+recharges and your password to that one device. That is the honest boundary. What **never** leaves:
+your name, your phone number, your contacts, your location, your messages, your files, or any list
+of what is installed.
 
 ## Two design choices that will look like bugs
 
