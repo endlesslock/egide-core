@@ -118,9 +118,10 @@ object DeviceKey {
      * A key created this way produces a **certificate chain** (see [getAttestationChainBase64])
      * signed up to Google's attestation root, proving that the key really is backed by the secure
      * hardware of a genuine device, and embedding the supplied `challenge` as a replay anchor. The
-     * challenge is issued by the server, from a dedicated endpoint, just before enrolment; the
-     * server checks that the chain answers the challenge it issued, and that the package and the
-     * device-owner state are the expected ones. There is no enrolment token.
+     * challenge is meant to be issued by the server, from a dedicated endpoint, just before
+     * enrolment. That endpoint does not exist server-side yet: once it is live, the server will
+     * check that the chain answers the challenge it issued, along with the package name and the
+     * device-owner state. There is no enrolment token.
      *
      * The challenge can only be set when the key is CREATED, so this method **deletes** the
      * existing key and regenerates one. The public key changes and must be registered again. That
@@ -151,8 +152,9 @@ object DeviceKey {
      * Exports the key's **attestation certificate chain**, each certificate as DER then Base64.
      *
      * The first element is the leaf certificate, which is our key; the following ones climb toward
-     * Google's attestation root. It is sent to the server, which verifies the chain up to that
-     * root, the hardware anchoring, and the challenge.
+     * Google's attestation root. It is meant to be sent to the server, which will verify the chain
+     * up to that root, the hardware anchoring, and the challenge, once that server-side check
+     * exists.
      *
      * @return the list of Base64 certificates, or `null` when no attestation chain exists. A
      *         non-attested key has a single self-referential certificate, and that yields `null`.
