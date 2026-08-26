@@ -60,10 +60,10 @@ about how to stop it from erasing.
 | Captcha | `McaptchaSolver.kt` | The portal's on-device proof-of-work solver. |
 | The closed part, mapped | `ClosedSurface.kt` | Every operation the application can perform, what it touches, what it sends — across all three onion services. Declarations only. |
 
-Four further files sit in `android-extracts/`. They depend on the Android framework, so they cannot
+Three further files sit in `android-extracts/`. They depend on the Android framework, so they cannot
 be compiled in this project and are published for reading only: `DeviceKey.kt` (the identity key
-lives in the secure element and never leaves it), `DeviceIdentity.kt`, `HttpFactory.kt` (there is one
-outbound HTTP configuration and no second one), and `NetworkUtils.kt`.
+lives in the secure element and never leaves it), `HttpFactory.kt` (there is one outbound HTTP
+configuration and no second one), and `NetworkUtils.kt`.
 
 ### Not published, and why
 

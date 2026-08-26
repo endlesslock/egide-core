@@ -90,13 +90,12 @@ files decide, they never act.
 | `McaptchaSolver.kt` | The portal's proof-of-work captcha solver: it burns the device's own CPU and sends nothing about you. |
 | `ClosedSurface.kt` | The map of the closed part: every operation the application can perform on a device, what each one touches, and what each one sends. Declarations only, no implementations. |
 
-`android-extracts/` holds four files that depend on the Android framework and therefore cannot be
+`android-extracts/` holds three files that depend on the Android framework and therefore cannot be
 compiled here. They are published for reading, not for running:
 
 | File | Why it is worth reading |
 |---|---|
 | `DeviceKey.kt` | The device identity key. It shows the private key is generated inside the secure element and never leaves it. |
-| `DeviceIdentity.kt` | How the device identifier is resolved, and that no sentinel value is ever persisted as an identity. |
 | `HttpFactory.kt` | That there is exactly one outbound HTTP configuration, with no interceptor and no second exit. |
 | `NetworkUtils.kt` | The single definition of "a network is available", which feeds an irreversible trigger. |
 

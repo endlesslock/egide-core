@@ -63,8 +63,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Removed
 
 - The device identifier from the enrolment body, and with it the last hardware identifier this
-  application ever sent. `DeviceIdentity.kt` still resolves one, and it is now used only on the
-  device, never transmitted.
+  application ever sent. The extract that documented how it used to be resolved, `DeviceIdentity.kt`,
+  is removed from this repository too: nothing in the application reads that identifier any more, on
+  the device or off it.
 - The enrolment token and the `/api/redeem` entitlement path: superseded by the attestation-based
   enrolment and the `/api/account` lookup.
 - The wall-clock lock and network-isolation timer decisions (`lockDurationShouldWipe`,

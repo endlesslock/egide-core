@@ -117,13 +117,16 @@ object DeviceKey {
      *
      * A key created this way produces a **certificate chain** (see [getAttestationChainBase64])
      * signed up to Google's attestation root, proving that the key really is backed by the secure
-     * hardware of a genuine device, and embedding the supplied `challenge` as a replay anchor: the
-     * server checks that the challenge equals the `esid` (the reset-proof anchor). There is no
-     * enrolment token any more.
+     * hardware of a genuine device, and embedding the supplied `challenge` as a replay anchor. The
+     * challenge is issued by the server, from a dedicated endpoint, just before enrolment; the
+     * server checks that the chain answers the challenge it issued, and that the package and the
+     * device-owner state are the expected ones. There is no enrolment token.
      *
      * The challenge can only be set when the key is CREATED, so this method **deletes** the
-     * existing key and regenerates one. The public key changes and must be registered again. It is
-     * meant to be called once.
+     * existing key and regenerates one. The public key changes and must be registered again. That
+     * is exactly why it is called only when no key is held: a device that still holds its key
+     * proves it answered the challenge by SIGNING the challenge instead, which leaves the public
+     * key alone.
      *
      * @param challenge the challenge bytes to seal into the attestation certificate.
      * @return `true` if the attested key was generated, `false` otherwise. After a failure a
