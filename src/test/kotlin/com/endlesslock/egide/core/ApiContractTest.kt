@@ -109,9 +109,15 @@ class ApiContractTest {
     }
 
     @Test
+    fun `the enrolment challenge path is slash enroll slash challenge`() {
+        assertEquals("/enroll/challenge", ApiContract.PATH_ENROLL_CHALLENGE)
+    }
+
+    @Test
     fun `every path starts with a slash`() {
         val paths = listOf(
             ApiContract.PATH_ENROLL,
+            ApiContract.PATH_ENROLL_CHALLENGE,
             ApiContract.PATH_HEALTH,
             ApiContract.PATH_NONCE,
             ApiContract.PATH_VERIFY,
@@ -120,6 +126,7 @@ class ApiContractTest {
             ApiContract.PATH_ACCOUNT
         )
         paths.forEach { assertTrue("Path without a leading slash: $it", it.startsWith("/")) }
+        assertEquals("Two endpoints share a path", paths.size, paths.toSet().size)
     }
 
     // ==================================================================
@@ -143,6 +150,11 @@ class ApiContractTest {
     @Test
     fun `the device_id key is device_id`() {
         assertEquals("device_id", ApiContract.KEY_DEVICE_ID)
+    }
+
+    @Test
+    fun `the challenge key is challenge`() {
+        assertEquals("challenge", ApiContract.KEY_CHALLENGE)
     }
 
     @Test
@@ -257,6 +269,7 @@ class ApiContractTest {
             ApiContract.KEY_DEVICE_ID,
             ApiContract.KEY_PUBLIC_KEY,
             ApiContract.KEY_ATTESTATION_CHAIN,
+            ApiContract.KEY_CHALLENGE,
             ApiContract.KEY_NONCE,
             ApiContract.KEY_SIGNATURE,
             ApiContract.KEY_JWT,
@@ -429,6 +442,20 @@ class ApiContractTest {
         assertTrue(obj.has(ApiContract.KEY_PUBLIC_KEY))
         assertTrue(obj.has(ApiContract.KEY_ATTESTATION_CHAIN))
         assertTrue(obj.has(ApiContract.KEY_ESID))
+    }
+
+    @Test
+    fun `challenge toJson carries the esid and nothing else`() {
+        val obj = JSONObject(ApiContract.ChallengeRequest("ESID-42").toJson())
+        assertEquals("ESID-42", obj.getString("esid"))
+        assertEquals(setOf("esid"), keysOf(obj))
+    }
+
+    @Test
+    fun `challenge toJson really uses the contract key constant`() {
+        val obj = JSONObject(ApiContract.ChallengeRequest("e").toJson())
+        assertTrue(obj.has(ApiContract.KEY_ESID))
+        assertEquals(1, obj.length())
     }
 
     // ==================================================================

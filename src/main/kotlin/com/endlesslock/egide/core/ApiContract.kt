@@ -79,6 +79,21 @@ object ApiContract {
     /** Enrolment: registers the (device id, public key) pair. POST, over Tor. */
     const val PATH_ENROLL = "/enroll"
 
+    /**
+     * Enrolment challenge: the device asks for the value its registration must answer. POST, over
+     * Tor, on the same onion service as everything else here.
+     *
+     * It exists because of a platform constraint that is worth stating plainly: an attestation
+     * challenge can only be sealed into a key at the instant that key is CREATED. A challenge that
+     * changed on every registration would therefore force a new key, and so a new public key, every
+     * single time. So the challenge is asked for first, and the registration that follows answers
+     * it, either with a fresh attested key or with a signature from the key already held.
+     *
+     * The reply carries one field, [KEY_CHALLENGE]. Its value carries a fixed domain prefix, so a
+     * challenge issued here can never be presented as a nonce from [PATH_NONCE], nor the reverse.
+     */
+    const val PATH_ENROLL_CHALLENGE = "/enroll/challenge"
+
     /** Update: reachability probe. GET; a 2xx means the server is up. */
     const val PATH_HEALTH = "/health"
 
@@ -146,6 +161,13 @@ object ApiContract {
      * there is no enrolment token any more. Enrolment.
      */
     const val KEY_ATTESTATION_CHAIN = "attestation_chain"
+
+    /**
+     * The enrolment challenge returned by [PATH_ENROLL_CHALLENGE]. The device answers it either by
+     * sealing it into a freshly created attested key, or by signing it with the key it already
+     * holds. Enrolment.
+     */
+    const val KEY_CHALLENGE = "challenge"
 
     /** Single-use nonce supplied by the server. Update authentication. */
     const val KEY_NONCE = "nonce"
@@ -247,6 +269,25 @@ object ApiContract {
     const val MEDIA_TYPE_APK = "application/vnd.android.package-archive"
 
     // =================== TRANSFER OBJECTS ===================
+
+    /**
+     * Body of the enrolment challenge request: `POST` over **Tor** to [PATH_ENROLL_CHALLENGE].
+     *
+     * It carries ONE field, and there is nothing else it could usefully carry: the challenge is
+     * bound to the enrolment-specific id, which is the only identity the device has before it is
+     * registered. No device identifier, no public key, nothing about the person, nothing about the
+     * contents of the device.
+     *
+     * @property esid the enrolment-specific id the challenge will be bound to.
+     */
+    data class ChallengeRequest(
+        val esid: String
+    ) {
+        /** Serialises to JSON conforming to the contract, using the centralised key above. */
+        fun toJson(): String = JSONObject().apply {
+            put(KEY_ESID, esid)
+        }.toString()
+    }
 
     /**
      * Body of the enrolment request: `POST` over **Tor** to [PATH_ENROLL] on the shared onion service.
