@@ -71,7 +71,7 @@ object HttpFactory {
      * propagated and the caller decides what to do with it.
      *
      * Use it only for IDEMPOTENT operations. A replayed enrolment is deduplicated server-side by
-     * device identifier. Do NOT use it for actions that cannot be replayed.
+     * the enrolment-specific id (esid). Do NOT use it for actions that cannot be replayed.
      *
      * @param maxAttempts maximum number of attempts, at least one.
      * @param baseDelayMs base backoff delay, in milliseconds.

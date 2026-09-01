@@ -12,8 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Initial publication of the decision core: the erase triggers, the SMS and remote-erase decisions,
   the update verification rules, attestation marking, update bounds, settings validation, Tor
   control-port parsing, and the complete server contract.
-- Four Android-dependent files published for reading in `android-extracts/`: the device identity
-  key, the device identifier resolver, the HTTP factory, and the network availability check.
+- Three Android-dependent files published for reading in `android-extracts/`: the device identity
+  key, the HTTP factory, and the network availability check.
 - `ClosedSurface.kt`: a declaration-only map of the closed part, so the published flow is
   complete end to end. Every operation the application can perform is listed with what it touches
   and what it sends; none of them is implemented, and a test asserts that none of them is.
@@ -27,7 +27,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`DeadManTickTest`), which prove that a wall-clock change credits nothing within a boot session.
 - The account-lookup operation (`/api/account`) and the eraser poll are now declared in
   `ClosedSurface.kt`, so the outbound map covers all three onion services end to end.
-- 232 host tests covering the boundaries of every published decision.
+- 242 host tests covering the boundaries of every published decision.
 - `ARCHITECTURE.md`, explaining where the published boundary falls and what trust remains.
 - `SECURITY.md`, with a disclosure policy that explicitly does not require our permission to publish.
 - `VERIFY.md`, for checking a received package against its published hash.
@@ -55,7 +55,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   onion services (enrolment/update, eraser, portal), and every outbound operation is listed. The
   earlier claim of "exactly two outbound operations" was true of an older shape and is gone; nothing
   that leaves the device carries personal data or device contents, but the device and account
-  identifiers (`device_id`, `device_uid`) are named plainly as the linking identifiers they are.
+  identifiers (`esid`, `device_uid`) are named plainly as the linking identifiers they are.
 - Enrolment used to be authorised by hardware attestation plus an `esid`, with the `esid` optional
   and a fallback behind it. Both the option and the fallback are gone; see the entries above.
 - The default failed-passcode threshold documented and pinned as **10**.

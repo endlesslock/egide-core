@@ -9,3 +9,6 @@ local.properties
 *.keystore
 *.jks
 *.p12
+
+# Local audit scaffolding (SDD reports), never published
+.sdd-rapports/

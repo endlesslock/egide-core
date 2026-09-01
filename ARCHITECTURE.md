@@ -112,7 +112,8 @@ We would rather write that down here than let you find it out later.
    Check that no personal data appears anywhere in it.
 2. `HttpFactory.kt` in `android-extracts/`. That is the only outbound HTTP configuration; all three
    services go through it.
-3. `TriggerLogic.kt`. That is every circumstance in which data is destroyed.
+3. `TriggerLogic.kt`, `SmsTriggerLogic.kt` and `EraserResponseLogic.kt`: the timer, SMS-command
+   and remote-order decisions. `WipeSource.kt` names every erase source and the tier it falls in.
 4. `ApkVerificationLogic.kt`, then the "Honest limitations" section of the README, in that order.
 
 Then run `./gradlew test` and watch the boundaries hold.

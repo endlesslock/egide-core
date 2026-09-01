@@ -14,7 +14,7 @@ for signs that the device has left its owner's hands, and past a threshold the o
 erases the protected data. It runs as a device owner on GrapheneOS, which is what gives it the
 authority to do that.
 
-The triggers are:
+The main triggers are:
 
 - **Failed passcode attempts** above a configured threshold.
 - **Prolonged lock**: the screen has stayed locked longer than the owner allowed.
@@ -29,11 +29,12 @@ no-network and prolonged-lock timers are armed at **72 hours**, and the failed-a
 states the 72-hour defaults explicitly before handing over, and every threshold can be changed or
 switched off afterwards.
 
-**Some triggers are free, some are paid, and here is the split.** The offline safety net — a
-prolonged-lock erase, and the failed-passcode and tamper defences — is **free for life and never
+**Some triggers are free, some are paid, and here is the split.** The offline safety net (a
+prolonged-lock erase, the failed-passcode and tamper defences, the manual panic button, and an
+automatic erase if the application's admin rights are stripped) is **free for life and never
 gated**, so a lost or seized phone always ends up protecting itself even with no subscription. The
-**remote and fast** triggers — a remote onion order, an SMS command, the dead-man timer, and the
-network-isolation timer — are the **paid** tier. Which trigger falls on which side is not a marketing
+**remote and fast** triggers (a remote onion order, an SMS command, the dead-man timer, and the
+network-isolation timer) are the **paid** tier. Which trigger falls on which side is not a marketing
 line you have to trust: it is pinned, source and test, in `WipeSource.kt` and `WipeSourceTest.kt`.
 
 We arm them because a device that is stolen on day one, from an owner who never opened the settings,
@@ -162,12 +163,13 @@ pinned by a published test.
 - *Set the web password*: the account identifier `device_uid`, the password **you** chose for your
   web account, a solved proof-of-work token, and a one-time possession proof.
 - *Recharge and verify*: the account identifier `device_uid`, the tier, the payment rail (the app
-  hard-codes Monero and never opens a card or clearnet checkout URL), a solved proof-of-work token,
-  and then the payment reference to check it.
+  hard-codes Monero and never opens a card or clearnet checkout URL), and then the payment
+  reference to check it.
 
 So the **complete** list of what ever leaves the device is: an enrolment-specific id, an account
 identifier, a public key, an attestation chain, signatures over a server challenge and over server
-nonces, version numbers, session tokens, a payment tier and reference, and the web password you set.
+nonces, version numbers, session tokens, a payment tier and reference, a one-time possession proof,
+a solved proof-of-work token, and the web password you set.
 The enrolment-specific id and the account identifier are **stable and linking**: the server can tell
 that two requests came from the same device, and the `device_uid` ties your update checks, your
 recharges and your password to that one device. That is the honest boundary. What **never** leaves:

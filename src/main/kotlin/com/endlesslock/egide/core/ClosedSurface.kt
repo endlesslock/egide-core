@@ -243,8 +243,8 @@ object ClosedSurface {
      * Creates a recharge and checks its payment. `POST /recharge` then `POST /recharge/verifier`, over Tor.
      *
      * - Sends: the account identifier `device_uid`, the chosen tier, the payment rail (the app
-     *   hard-codes Monero and never opens a card/clearnet checkout URL), a solved proof-of-work
-     *   token, and then the payment reference to verify it.
+     *   hard-codes Monero and never opens a card/clearnet checkout URL), and then the payment
+     *   reference to verify it.
      * - Does not send: anything about the person or the contents of the device.
      */
     fun rechargeCredit(): Unit = closed()

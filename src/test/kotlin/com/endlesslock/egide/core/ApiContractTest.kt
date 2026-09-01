@@ -11,7 +11,7 @@ import org.junit.Test
  * HOST unit tests (pure JVM plus the REAL org.json) for [ApiContract].
  *
  * Coverage:
- *  - The protocol number, [ApiContract.PROTOCOL_VERSION] equals 1.
+ *  - The protocol number, [ApiContract.PROTOCOL_VERSION] equals 2.
  *  - Every constant for HTTP headers, endpoint paths, parameters and JSON keys: each must equal
  *    EXACTLY the expected string. The server is built as a mirror of this file, so any drift in a
  *    literal would break the contract between them.
